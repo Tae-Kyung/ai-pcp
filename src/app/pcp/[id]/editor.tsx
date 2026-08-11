@@ -21,6 +21,29 @@ interface Document {
   created_at: string;
 }
 
+interface DimensionScore {
+  score: number;
+  feedback: string;
+  details: string[];
+}
+
+interface ReviewResult {
+  dimensions: Record<string, DimensionScore>;
+  improvements: string[];
+  strengths: string[];
+}
+
+const DIMENSION_LABELS: Record<string, { label: string; weight: string; icon: string }> = {
+  structure: { label: "Structure Compliance", weight: "15%", icon: "📋" },
+  logic: { label: "Logical Consistency", weight: "20%", icon: "🔗" },
+  sdgsAlignment: { label: "SDGs Alignment", weight: "10%", icon: "🌍" },
+  relevance: { label: "Relevance", weight: "15%", icon: "🎯" },
+  resultsFramework: { label: "Results Framework", weight: "15%", icon: "📊" },
+  riskSustainability: { label: "Risk & Sustainability", weight: "10%", icon: "🛡" },
+  writingQuality: { label: "Writing Quality", weight: "10%", icon: "✍" },
+  budget: { label: "Budget", weight: "5%", icon: "💰" },
+};
+
 const SECTION_TITLES: Record<string, string> = {
   basicInfo: "1. Basic Project Information",
   rationale: "2. Project Rationale",
@@ -44,6 +67,10 @@ export function PCPEditor({ project, document }: { project: Project; document: D
   const [aiStatus, setAiStatus] = useState("");
   const [regenerating, setRegenerating] = useState(false);
   const [regenStatus, setRegenStatus] = useState("");
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewStatus, setReviewStatus] = useState("");
+  const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
+  const [showReview, setShowReview] = useState(false);
   const aiInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -292,6 +319,90 @@ export function PCPEditor({ project, document }: { project: Project; document: D
       setRegenStatus("Network error");
       setRegenerating(false);
     }
+  }
+
+  async function handleReview() {
+    if (reviewing) return;
+    setReviewing(true);
+    setReviewStatus("Connecting to AI expert...");
+    setReviewResult(null);
+    setShowReview(true);
+
+    try {
+      const res = await fetch(`/api/pcp/${project.id}/review`, { method: "POST" });
+      if (!res.ok || !res.body) {
+        setReviewStatus("Failed to start review");
+        setReviewing(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let eventType = "";
+
+      while (true) {
+        const { done, value: chunk } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(chunk, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith("data: ") && eventType) {
+            try {
+              const eventData = JSON.parse(line.slice(6));
+              if (eventType === "status") setReviewStatus(eventData.message);
+              if (eventType === "done") {
+                setReviewResult(eventData.review as ReviewResult);
+                setReviewStatus("");
+                setReviewing(false);
+                return;
+              }
+              if (eventType === "error") {
+                setReviewStatus(`Error: ${eventData.error}`);
+                setReviewing(false);
+                return;
+              }
+            } catch { /* skip */ }
+            eventType = "";
+          }
+        }
+      }
+      setReviewing(false);
+    } catch {
+      setReviewStatus("Network error");
+      setReviewing(false);
+    }
+  }
+
+  function getScoreColor(score: number): string {
+    if (score >= 90) return "text-green-600 dark:text-green-400";
+    if (score >= 80) return "text-blue-600 dark:text-blue-400";
+    if (score >= 70) return "text-yellow-600 dark:text-yellow-400";
+    return "text-red-600 dark:text-red-400";
+  }
+
+  function getScoreBg(score: number): string {
+    if (score >= 90) return "bg-green-500";
+    if (score >= 80) return "bg-blue-500";
+    if (score >= 70) return "bg-yellow-500";
+    return "bg-red-500";
+  }
+
+  function getWeightedTotal(): number {
+    if (!reviewResult?.dimensions) return 0;
+    const weights: Record<string, number> = {
+      structure: 0.15, logic: 0.20, sdgsAlignment: 0.10, relevance: 0.15,
+      resultsFramework: 0.15, riskSustainability: 0.10, writingQuality: 0.10, budget: 0.05,
+    };
+    let total = 0;
+    for (const [key, dim] of Object.entries(reviewResult.dimensions)) {
+      total += (dim.score || 0) * (weights[key] || 0);
+    }
+    return Math.round(total);
   }
 
   function renderValue(value: unknown, path: string, depth = 0): React.ReactNode {
@@ -649,6 +760,13 @@ export function PCPEditor({ project, document }: { project: Project; document: D
             Download .pptx
           </button>
           <button
+            onClick={handleReview}
+            disabled={reviewing || !document}
+            className="rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 dark:hover:bg-indigo-900"
+          >
+            {reviewing ? "Reviewing..." : "AI Expert Review"}
+          </button>
+          <button
             onClick={handleDelete}
             disabled={deleting}
             className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
@@ -662,6 +780,128 @@ export function PCPEditor({ project, document }: { project: Project; document: D
       <div className="mb-4 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300">
         Click any text to edit it. Press Ctrl+Enter to confirm, Esc to cancel.
       </div>
+
+      {/* Expert Review Panel */}
+      {showReview && (
+        <div className="mb-6 rounded-lg border border-indigo-200 bg-white dark:border-indigo-800 dark:bg-zinc-900">
+          <div className="flex items-center justify-between border-b border-indigo-100 px-4 py-3 dark:border-indigo-800">
+            <h3 className="text-lg font-semibold text-indigo-700 dark:text-indigo-300">
+              AI Expert Review
+            </h3>
+            <button
+              onClick={() => setShowReview(false)}
+              className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              Close
+            </button>
+          </div>
+
+          {reviewing && (
+            <div className="p-6 text-center">
+              <div className="mb-3 inline-block h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600" />
+              <p className="text-sm text-indigo-600 dark:text-indigo-400">{reviewStatus}</p>
+            </div>
+          )}
+
+          {reviewResult && (
+            <div className="p-4 space-y-4">
+              {/* Overall Score */}
+              <div className="flex items-center gap-4 rounded-lg bg-indigo-50 p-4 dark:bg-indigo-950">
+                <div className={`text-4xl font-bold ${getScoreColor(getWeightedTotal())}`}>
+                  {getWeightedTotal()}
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Overall Score (Weighted)</div>
+                  <div className="text-xs text-zinc-500">
+                    {getWeightedTotal() >= 90 ? "Excellent" : getWeightedTotal() >= 80 ? "Good" : getWeightedTotal() >= 70 ? "Acceptable" : "Needs Improvement"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Dimension Scores */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {Object.entries(reviewResult.dimensions || {}).map(([key, dim]) => {
+                  const meta = DIMENSION_LABELS[key] || { label: key, weight: "", icon: "" };
+                  return (
+                    <div key={key} className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-medium">
+                          {meta.icon} {meta.label}
+                        </span>
+                        <span className={`text-lg font-bold ${getScoreColor(dim.score)}`}>
+                          {dim.score}
+                        </span>
+                      </div>
+                      <div className="mb-2 h-1.5 w-full rounded-full bg-zinc-200 dark:bg-zinc-700">
+                        <div
+                          className={`h-1.5 rounded-full ${getScoreBg(dim.score)}`}
+                          style={{ width: `${dim.score}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-1">{dim.feedback}</p>
+                      {dim.details && dim.details.length > 0 && (
+                        <ul className="space-y-0.5">
+                          {dim.details.slice(0, 3).map((d, i) => (
+                            <li key={i} className="text-xs text-zinc-500 dark:text-zinc-500">
+                              - {d}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Strengths & Improvements */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {reviewResult.strengths && reviewResult.strengths.length > 0 && (
+                  <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
+                    <h4 className="mb-2 text-sm font-semibold text-green-700 dark:text-green-300">Strengths</h4>
+                    <ul className="space-y-1">
+                      {reviewResult.strengths.map((s, i) => (
+                        <li key={i} className="text-xs text-green-700 dark:text-green-400">+ {s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {reviewResult.improvements && reviewResult.improvements.length > 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+                    <h4 className="mb-2 text-sm font-semibold text-amber-700 dark:text-amber-300">Suggested Improvements</h4>
+                    <ul className="space-y-1">
+                      {reviewResult.improvements.map((imp, i) => (
+                        <li key={i} className="text-xs text-amber-700 dark:text-amber-400">
+                          <button
+                            className="text-left hover:underline"
+                            onClick={() => {
+                              setAiPrompt(imp);
+                              setShowReview(false);
+                              aiInputRef.current?.focus();
+                            }}
+                          >
+                            → {imp}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 text-xs text-amber-600 dark:text-amber-500 italic">
+                      Click a suggestion to apply it via AI Refine
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!reviewing && !reviewResult && reviewStatus && (
+            <div className="p-4">
+              <p className={`text-sm ${reviewStatus.startsWith("Error") ? "text-red-600" : "text-indigo-600"}`}>
+                {reviewStatus}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {!document ? (
         <div className="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
