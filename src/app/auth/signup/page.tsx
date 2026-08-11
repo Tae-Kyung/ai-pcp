@@ -22,7 +22,7 @@ export default function SignupPage() {
     setError("");
 
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { full_name: fullName } },
@@ -30,9 +30,19 @@ export default function SignupPage() {
 
     if (error) {
       setError(error.message);
-    } else {
-      setSuccess(true);
+      setLoading(false);
+      return;
     }
+
+    // If session exists, email confirmation is disabled → go to dashboard
+    if (data.session) {
+      router.push("/dashboard");
+      router.refresh();
+      return;
+    }
+
+    // Otherwise show "check your email" message
+    setSuccess(true);
     setLoading(false);
   }
 
