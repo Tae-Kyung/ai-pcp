@@ -26,6 +26,21 @@ const SDG_NAMES: Record<number, string> = {
 };
 
 // === Helpers ===
+function asArray(val: unknown): unknown[] {
+  if (Array.isArray(val)) return val;
+  return [];
+}
+
+function asRecordArray(val: unknown): Record<string, unknown>[] {
+  if (Array.isArray(val)) return val.filter((v) => v && typeof v === "object") as Record<string, unknown>[];
+  return [];
+}
+
+function asStringArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val.map((v) => String(v));
+  return [];
+}
+
 function stringify(value: unknown): string {
   if (value === null || value === undefined) return "-";
   if (typeof value === "string") return value;
@@ -109,6 +124,68 @@ function riskColor(level: string): string {
   return ACCENT_GREEN;
 }
 
+// Try to extract baseline→target from indicator text like "increased from 28% to 75%"
+function parseIndicatorMetrics(text: string): { indicator: string; baseline: string; target: string } {
+  // Pattern: "X increased/decreased from A to B"
+  const fromTo = text.match(/(.+?)\s+(?:increased?|decreased?|reduced?|improved?|raised?)\s+from\s+(.+?)\s+to\s+(.+?)(?:\s|$|,|\.)/i);
+  if (fromTo) {
+    return { indicator: fromTo[1].trim(), baseline: fromTo[2].trim(), target: fromTo[3].trim() };
+  }
+  // Pattern: "A → B" or "A to B"
+  const arrow = text.match(/(.+?):\s*(.+?)\s*(?:→|->|to)\s*(.+?)(?:\s|$|,|\.)/i);
+  if (arrow) {
+    return { indicator: arrow[1].trim(), baseline: arrow[2].trim(), target: arrow[3].trim() };
+  }
+  return { indicator: text, baseline: "", target: "" };
+}
+
+// Split sustainability text into pillars by keywords
+function parseSustainabilityPillars(text: string): { title: string; text: string; color: string }[] {
+  const pillars: { title: string; text: string; color: string }[] = [];
+  const pillarDefs = [
+    { keywords: ["financial", "economic", "budget", "cost recovery", "user fee", "revenue"], title: "Financial", color: BLUE },
+    { keywords: ["technical", "capacity", "training", "skill", "knowledge"], title: "Technical", color: ACCENT_GREEN },
+    { keywords: ["institutional", "government", "policy", "legal", "structure"], title: "Institutional", color: ACCENT_TEAL },
+    { keywords: ["social", "community", "ownership", "participation", "women", "youth"], title: "Social", color: ACCENT_ORANGE },
+  ];
+
+  // Try to split by sentence and classify
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const classified: Record<string, string[]> = {};
+
+  for (const sentence of sentences) {
+    const lower = sentence.toLowerCase();
+    let matched = false;
+    for (const def of pillarDefs) {
+      if (def.keywords.some((kw) => lower.includes(kw))) {
+        if (!classified[def.title]) classified[def.title] = [];
+        classified[def.title].push(sentence);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      // Add to first pillar or "General"
+      const first = Object.keys(classified)[0] || "General";
+      if (!classified[first]) classified[first] = [];
+      classified[first].push(sentence);
+    }
+  }
+
+  const keys = Object.keys(classified);
+  if (keys.length >= 2) {
+    for (const key of keys) {
+      const def = pillarDefs.find((d) => d.title === key);
+      pillars.push({
+        title: key,
+        text: classified[key].join(" "),
+        color: def?.color || BLUE,
+      });
+    }
+  }
+  return pillars;
+}
+
 // === Slide building blocks ===
 function addSlideHeader(slide: PptxGenJS.Slide, title: string, subtitle?: string) {
   slide.addShape("rect" as PptxGenJS.ShapeType, {
@@ -125,7 +202,6 @@ function addSlideHeader(slide: PptxGenJS.Slide, title: string, subtitle?: string
       fontSize: 12, color: "A0C0FF", fontFace: "Calibri", italic: true,
     });
   }
-  // Bottom accent line
   slide.addShape("rect" as PptxGenJS.ShapeType, {
     x: 0, y: 0.97, w: 13.33, h: 0.03,
     fill: { color: DARK_BLUE },
@@ -160,7 +236,6 @@ function addNumberedItem(
   num: number, title: string, description: string,
   numColor = BLUE
 ) {
-  // Number circle
   slide.addShape("ellipse" as PptxGenJS.ShapeType, {
     x, y: y + 0.05, w: 0.35, h: 0.35,
     fill: { color: numColor },
@@ -170,7 +245,6 @@ function addNumberedItem(
     fontSize: 12, color: WHITE, fontFace: "Calibri", bold: true,
     align: "center", valign: "middle",
   });
-  // Title and description
   slide.addText([
     { text: title + "\n", options: { bold: true, fontSize: 11, color: DARK } },
     { text: description, options: { fontSize: 9.5, color: GRAY } },
@@ -185,7 +259,6 @@ function addSectionBox(
   x: number, y: number, w: number, h: number,
   title: string, body: string, accentColor = BLUE
 ) {
-  // Left accent bar
   slide.addShape("rect" as PptxGenJS.ShapeType, {
     x, y, w: 0.06, h,
     fill: { color: accentColor },
@@ -212,6 +285,32 @@ function addFooter(slide: PptxGenJS.Slide, text: string) {
   });
 }
 
+function slide_addFrameworkLevel(
+  slide: PptxGenJS.Slide,
+  x: number, y: number, w: number, h: number,
+  label: string, text: string, color: string
+) {
+  slide.addShape("roundRect" as PptxGenJS.ShapeType, {
+    x, y, w: 1.5, h, rectRadius: 0.08,
+    fill: { color },
+  });
+  slide.addText(label, {
+    x, y, w: 1.5, h,
+    fontSize: 10, color: WHITE, fontFace: "Calibri", bold: true,
+    align: "center", valign: "middle",
+  });
+  slide.addShape("roundRect" as PptxGenJS.ShapeType, {
+    x: x + 1.55, y, w: w - 1.55, h, rectRadius: 0.08,
+    fill: { color: CARD_BG },
+    line: { color, width: 1 },
+  });
+  slide.addText(text, {
+    x: x + 1.7, y, w: w - 1.85, h,
+    fontSize: 10, color: DARK, fontFace: "Calibri",
+    valign: "middle",
+  });
+}
+
 // === Main export ===
 export async function generatePptx(
   content: Record<string, unknown>,
@@ -232,12 +331,18 @@ export async function generatePptx(
 
   const beneficiaries = basicInfo.targetBeneficiaries as Record<string, unknown> | undefined;
   const currency = (basicInfo.currency as string) || "USD";
-  const outcomes = Array.isArray(description.expectedOutcomes) ? description.expectedOutcomes as Record<string, unknown>[] : [];
-  const budgetItems = Array.isArray(description.budgetPlan) ? description.budgetPlan as Record<string, unknown>[] : [];
-  const stakeholders = Array.isArray(stakeholderAnalysis.stakeholders) ? stakeholderAnalysis.stakeholders as Record<string, unknown>[] : [];
-  const risks = Array.isArray(management.risks) ? management.risks as Record<string, unknown>[] : [];
+  const outcomes = asRecordArray(description.expectedOutcomes);
+  const budgetItems = asRecordArray(description.budgetPlan);
+  const stakeholders = asRecordArray(stakeholderAnalysis.stakeholders);
+  const risks = asRecordArray(management.risks);
   const sdgs = Array.isArray(basicInfo.sdgsAlignment) ? basicInfo.sdgsAlignment as number[] : [];
   const sectorLabel = sector.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const totalCost = basicInfo.totalProjectCost;
+  const directBenef = beneficiaries?.direct || beneficiaries?.totalCount;
+  const indirectBenef = beneficiaries?.indirect;
+  const duration = basicInfo.projectDuration;
+  const footerText = `${title} | ${country}`;
 
   // ============================================================
   // SLIDE 1: TITLE
@@ -245,7 +350,6 @@ export async function generatePptx(
   const s1 = pptx.addSlide();
   s1.background = { fill: BLUE };
 
-  // Subtle top decoration
   s1.addShape("rect" as PptxGenJS.ShapeType, {
     x: 0, y: 0, w: 13.33, h: 0.06, fill: { color: WHITE },
   });
@@ -261,7 +365,6 @@ export async function generatePptx(
     valign: "top",
   });
 
-  // Agency / Location / Duration subtitle
   const subtitleParts = [
     basicInfo.responsibleMinistry ? stringify(basicInfo.responsibleMinistry) : "",
     basicInfo.projectLocation ? stringify(basicInfo.projectLocation) : "",
@@ -275,11 +378,6 @@ export async function generatePptx(
   }
 
   // Stat cards on title slide
-  const totalCost = basicInfo.totalProjectCost;
-  const directBenef = beneficiaries?.direct || beneficiaries?.totalCount;
-  const indirectBenef = beneficiaries?.indirect;
-  const duration = basicInfo.projectDuration;
-
   const titleStats: { value: string; label: string }[] = [];
   if (totalCost) titleStats.push({ value: formatCurrency(totalCost, currency), label: "Total project cost" });
   if (duration) titleStats.push({ value: stringify(duration), label: "Project duration" });
@@ -291,7 +389,6 @@ export async function generatePptx(
     const startX = 0.8;
     titleStats.forEach((stat, i) => {
       const cx = startX + i * (cardW + 0.25);
-      // Semi-transparent card
       s1.addShape("roundRect" as PptxGenJS.ShapeType, {
         x: cx, y: 4.3, w: cardW, h: 1.3, rectRadius: 0.1,
         fill: { color: DARK_BLUE },
@@ -320,7 +417,6 @@ export async function generatePptx(
   const s2 = pptx.addSlide();
   addSlideHeader(s2, "Basic Project Information", "The project at a glance");
 
-  // Top stat cards row
   const infoStats: { value: string; label: string; color: string }[] = [];
   if (directBenef) infoStats.push({ value: stringify(directBenef), label: "direct beneficiaries", color: BLUE });
   if (totalCost) infoStats.push({ value: formatCurrency(totalCost, currency), label: "total cost", color: ACCENT_GREEN });
@@ -334,13 +430,11 @@ export async function generatePptx(
     });
   }
 
-  // Objective box
   const objectiveY = infoStats.length > 0 ? 2.6 : 1.2;
   if (basicInfo.projectObjectives) {
     addSectionBox(s2, 0.5, objectiveY, 12.2, 1.2, "Objective", truncate(stringify(basicInfo.projectObjectives), 400));
   }
 
-  // Info grid below
   const infoGridY = objectiveY + (basicInfo.projectObjectives ? 1.4 : 0);
   const infoFields: { label: string; value: string }[] = [];
   if (basicInfo.projectLocation) infoFields.push({ label: "Location", value: stringify(basicInfo.projectLocation) });
@@ -363,7 +457,7 @@ export async function generatePptx(
       rowH: 0.4,
     });
   }
-  addFooter(s2, `${title} | ${country}`);
+  addFooter(s2, footerText);
 
   // ============================================================
   // SLIDE 3: PROBLEM ANALYSIS
@@ -374,7 +468,6 @@ export async function generatePptx(
   const problemText = stringify(rationale.problemAnalysis || "");
   const problemParagraphs = splitIntoParagraphs(problemText, 300);
 
-  // Core problem box
   if (problemParagraphs.length > 0) {
     s3.addShape("roundRect" as PptxGenJS.ShapeType, {
       x: 0.5, y: 1.2, w: 12.2, h: 1.2, rectRadius: 0.1,
@@ -391,7 +484,6 @@ export async function generatePptx(
     });
   }
 
-  // Additional problem analysis and needs as numbered items
   const rootCauses: { title: string; text: string }[] = [];
   if (rationale.countryContext) rootCauses.push({ title: "Country Context", text: stringify(rationale.countryContext) });
   if (rationale.sectorContext) rootCauses.push({ title: "Sector Context", text: stringify(rationale.sectorContext) });
@@ -406,7 +498,7 @@ export async function generatePptx(
     const cy = 2.65 + row * 1.5;
     addNumberedItem(s3, cx, cy, colW, i + 1, cause.title, truncate(cause.text, 200));
   });
-  addFooter(s3, `${title} | ${country}`);
+  addFooter(s3, footerText);
 
   // ============================================================
   // SLIDE 4: NEEDS ASSESSMENT & CONSEQUENCES
@@ -429,12 +521,11 @@ export async function generatePptx(
       }
     }
 
-    // Gender analysis box
     if (rationale.genderAnalysis) {
       addSectionBox(s4, 0.5, yPos + 0.1, 12.2, 1.5,
         "Gender Analysis", truncate(stringify(rationale.genderAnalysis), 400), ACCENT_TEAL);
     }
-    addFooter(s4, `${title} | ${country}`);
+    addFooter(s4, footerText);
   }
 
   // ============================================================
@@ -461,21 +552,32 @@ export async function generatePptx(
     text: stringify(rationale.similarProjects), color: ACCENT_ORANGE,
   });
 
-  if (rationaleBoxes.length > 0) {
-    const boxH = Math.min(1.8, 5.5 / rationaleBoxes.length);
-    rationaleBoxes.forEach((box, i) => {
-      if (rationaleBoxes.length <= 2) {
-        // Stack vertically full width
-        addSectionBox(s5, 0.5, 1.3 + i * (boxH + 0.2), 12.2, boxH, box.title, truncate(box.text, 350), box.color);
-      } else {
-        // 2-column grid
-        const col = i % 2;
-        const row = Math.floor(i / 2);
-        addSectionBox(s5, 0.5 + col * 6.25, 1.3 + row * (boxH + 0.2), 5.95, boxH, box.title, truncate(box.text, 250), box.color);
-      }
-    });
+  // If we only have CPS, also try to add other rationale fields to make slide fuller
+  if (rationaleBoxes.length < 2) {
+    if (rationale.countryContext && !rationaleBoxes.some((b) => b.title.includes("Country"))) {
+      rationaleBoxes.push({ title: "Country Context", text: truncate(stringify(rationale.countryContext), 300), color: ACCENT_GREEN });
+    }
+    if (rationale.sectorContext && rationaleBoxes.length < 3) {
+      rationaleBoxes.push({ title: "Sector Context", text: truncate(stringify(rationale.sectorContext), 300), color: ACCENT_TEAL });
+    }
   }
-  addFooter(s5, `${title} | ${country}`);
+
+  if (rationaleBoxes.length > 0) {
+    if (rationaleBoxes.length <= 2) {
+      const boxH = Math.min(1.8, 5.5 / rationaleBoxes.length);
+      rationaleBoxes.forEach((box, i) => {
+        addSectionBox(s5, 0.5, 1.3 + i * (boxH + 0.2), 12.2, boxH, box.title, truncate(box.text, 350), box.color);
+      });
+    } else {
+      const boxH = Math.min(1.8, 5.5 / Math.ceil(rationaleBoxes.length / 2));
+      rationaleBoxes.forEach((box, i) => {
+        const bCol = i % 2;
+        const bRow = Math.floor(i / 2);
+        addSectionBox(s5, 0.5 + bCol * 6.25, 1.3 + bRow * (boxH + 0.2), 5.95, boxH, box.title, truncate(box.text, 250), box.color);
+      });
+    }
+  }
+  addFooter(s5, footerText);
 
   // ============================================================
   // SLIDE 6: LOGICAL FRAMEWORK
@@ -483,7 +585,6 @@ export async function generatePptx(
   const s6 = pptx.addSlide();
   addSlideHeader(s6, "Logical Framework", "From activities to impact");
 
-  // Framework chain: Goal -> Purpose -> Outcomes -> Outputs -> Activities
   const frameworkLevels: { label: string; text: string; color: string }[] = [];
   if (description.overallGoal) frameworkLevels.push({
     label: "GOAL", text: truncate(stringify(description.overallGoal), 200), color: DARK_BLUE,
@@ -492,17 +593,19 @@ export async function generatePptx(
     label: "PURPOSE", text: truncate(stringify(description.projectPurpose), 200), color: BLUE,
   });
   if (outcomes.length > 0) {
-    const outcomeSummary = outcomes.map((o, i) => `${i + 1}. ${truncate(stringify(o.description || o.id || ""), 80)}`).join("  ·  ");
+    const outcomeSummary = outcomes.map((o, i) => {
+      const desc = stringify(o.description || "");
+      const id = stringify(o.id || String(i + 1));
+      return `${id} ${truncate(desc, 80)}`;
+    }).join("  ·  ");
     frameworkLevels.push({ label: "OUTCOMES", text: outcomeSummary, color: ACCENT_TEAL });
   }
-  // Collect all outputs
-  const allOutputs = outcomes.flatMap((o) => Array.isArray(o.outputs) ? o.outputs as Record<string, unknown>[] : []);
+  const allOutputs = outcomes.flatMap((o) => asRecordArray(o.outputs));
   if (allOutputs.length > 0) {
     const outputSummary = allOutputs.slice(0, 6).map((o) => truncate(stringify(o.description || ""), 60)).join(" · ");
     frameworkLevels.push({ label: "OUTPUTS", text: outputSummary, color: ACCENT_GREEN });
   }
-  // Collect all activities
-  const allActivities = allOutputs.flatMap((o) => Array.isArray(o.activities) ? o.activities as string[] : []);
+  const allActivities = allOutputs.flatMap((o) => asStringArray(o.activities));
   if (allActivities.length > 0) {
     const actSummary = allActivities.slice(0, 6).map((a) => truncate(stringify(a), 50)).join(" · ");
     frameworkLevels.push({ label: "ACTIVITIES", text: actSummary, color: ACCENT_ORANGE });
@@ -512,9 +615,7 @@ export async function generatePptx(
     const levelH = Math.min(1.1, 5.8 / frameworkLevels.length);
     frameworkLevels.forEach((level, i) => {
       const ly = 1.2 + i * (levelH + 0.1);
-      // Arrow-like shape
       slide_addFrameworkLevel(s6, 0.5, ly, 12.2, levelH, level.label, level.text, level.color);
-      // Down arrow between levels
       if (i < frameworkLevels.length - 1) {
         s6.addText("▼", {
           x: 6.2, y: ly + levelH - 0.05, w: 1, h: 0.2,
@@ -524,12 +625,11 @@ export async function generatePptx(
     });
   }
 
-  // Key assumptions footer
   s6.addText("Key assumptions: supportive government policy · stable markets · active community participation", {
     x: 0.5, y: 6.6, w: 12.2, h: 0.3,
     fontSize: 9, color: LIGHT_GRAY, fontFace: "Calibri", italic: true,
   });
-  addFooter(s6, `${title} | ${country}`);
+  addFooter(s6, footerText);
 
   // ============================================================
   // SLIDE 7: EXPECTED OUTCOMES
@@ -541,7 +641,7 @@ export async function generatePptx(
     const outcomeH = Math.min(1.3, 5.5 / outcomes.length);
     outcomes.slice(0, 5).forEach((outcome, i) => {
       const oy = 1.3 + i * (outcomeH + 0.15);
-      const indicators = Array.isArray(outcome.indicators) ? outcome.indicators as string[] : [];
+      const indicators = asStringArray(outcome.indicators);
 
       // Number badge
       s7.addShape("roundRect" as PptxGenJS.ShapeType, {
@@ -554,14 +654,17 @@ export async function generatePptx(
         align: "center", valign: "middle",
       });
 
-      // Outcome description
+      // Outcome card
       s7.addShape("roundRect" as PptxGenJS.ShapeType, {
         x: 1.1, y: oy, w: 11.6, h: outcomeH, rectRadius: 0.08,
         fill: { color: CARD_BG },
         line: { color: BORDER_COLOR, width: 0.5 },
       });
+
       const descText = truncate(stringify(outcome.description || ""), 200);
-      const indicatorText = indicators.length > 0 ? indicators.slice(0, 3).map((ind) => "● " + truncate(stringify(ind), 100)).join("\n") : "";
+      const indicatorText = indicators.length > 0
+        ? indicators.slice(0, 3).map((ind) => "● " + truncate(stringify(ind), 100)).join("\n")
+        : "";
 
       s7.addText([
         { text: `Outcome ${stringify(outcome.id || String(i + 1))}: `, options: { bold: true, fontSize: 11, color: BLUE } },
@@ -572,22 +675,21 @@ export async function generatePptx(
         fontFace: "Calibri", valign: "top",
       });
     });
-    addFooter(s7, `${title} | ${country}`);
+    addFooter(s7, footerText);
   }
 
   // ============================================================
   // SLIDE 8: KEY OUTPUTS
   // ============================================================
-  if (outcomes.some((o) => Array.isArray(o.outputs) && o.outputs.length > 0)) {
+  if (outcomes.some((o) => asRecordArray(o.outputs).length > 0)) {
     const s8 = pptx.addSlide();
     addSlideHeader(s8, "Key Outputs", "Deliverables across all components");
 
     let yPos = 1.3;
     outcomes.slice(0, 4).forEach((outcome, oi) => {
-      const outputs = Array.isArray(outcome.outputs) ? outcome.outputs as Record<string, unknown>[] : [];
+      const outputs = asRecordArray(outcome.outputs);
       if (outputs.length === 0) return;
 
-      // Component header
       s8.addShape("rect" as PptxGenJS.ShapeType, {
         x: 0.5, y: yPos, w: 0.4, h: 0.3,
         fill: { color: BLUE },
@@ -614,7 +716,7 @@ export async function generatePptx(
       });
       yPos += 0.15;
     });
-    addFooter(s8, `${title} | ${country}`);
+    addFooter(s8, footerText);
   }
 
   // ============================================================
@@ -623,9 +725,9 @@ export async function generatePptx(
   {
     const activities: { text: string; component: string }[] = [];
     outcomes.forEach((o, oi) => {
-      const outputs = Array.isArray(o.outputs) ? o.outputs as Record<string, unknown>[] : [];
+      const outputs = asRecordArray(o.outputs);
       outputs.forEach((output) => {
-        const acts = Array.isArray(output.activities) ? output.activities as string[] : [];
+        const acts = asStringArray(output.activities);
         acts.forEach((a) => activities.push({ text: stringify(a), component: `Component ${oi + 1}` }));
       });
     });
@@ -646,7 +748,7 @@ export async function generatePptx(
         const cy = 1.3 + row * (itemH + 0.15);
         addNumberedItem(s9, cx, cy, colCount === 2 ? 5.95 : 12.2, i + 1, act.component, truncate(act.text, 180));
       });
-      addFooter(s9, `${title} | ${country}`);
+      addFooter(s9, footerText);
     }
   }
 
@@ -657,7 +759,6 @@ export async function generatePptx(
     const s10 = pptx.addSlide();
     addSlideHeader(s10, "Budget Plan", `${formatCurrency(basicInfo.totalProjectCost, currency)} over ${stringify(basicInfo.projectDuration || "the project period")}`);
 
-    // Visual budget bars
     const maxAmount = Math.max(...budgetItems.map((b) => Number(b.amount) || 0), 1);
     let yPos = 1.3;
 
@@ -666,20 +767,17 @@ export async function generatePptx(
       const pct = Number(item.percentage) || 0;
       const barWidth = Math.max(0.5, (amount / maxAmount) * 8);
 
-      // Category label
       s10.addText(stringify(item.category || ""), {
         x: 0.5, y: yPos, w: 3.5, h: 0.35,
         fontSize: 10, color: DARK, fontFace: "Calibri", bold: true,
         align: "right", valign: "middle",
       });
 
-      // Budget bar
       s10.addShape("roundRect" as PptxGenJS.ShapeType, {
         x: 4.2, y: yPos + 0.03, w: barWidth, h: 0.3, rectRadius: 0.05,
         fill: { color: BLUE },
       });
 
-      // Amount + percentage
       s10.addText(`${formatCurrency(amount, currency)}`, {
         x: 4.3, y: yPos, w: barWidth - 0.2, h: 0.35,
         fontSize: 10, color: WHITE, fontFace: "Calibri", bold: true,
@@ -692,7 +790,6 @@ export async function generatePptx(
         valign: "middle",
       });
 
-      // Description
       if (item.description) {
         s10.addText(truncate(stringify(item.description), 120), {
           x: 0.5, y: yPos + 0.35, w: 12.2, h: 0.25,
@@ -704,14 +801,13 @@ export async function generatePptx(
       }
     });
 
-    // Local procurement note
     if (management.localProcurement) {
       s10.addText("● " + truncate(stringify(management.localProcurement), 200), {
         x: 0.5, y: 6.3, w: 12.2, h: 0.4,
         fontSize: 9, color: ACCENT_GREEN, fontFace: "Calibri", italic: true,
       });
     }
-    addFooter(s10, `${title} | ${country}`);
+    addFooter(s10, footerText);
   }
 
   // ============================================================
@@ -721,95 +817,167 @@ export async function generatePptx(
     const s11 = pptx.addSlide();
     addSlideHeader(s11, "Implementation Timeline", "Phased approach from set-up to handover");
 
-    const timelineText = stringify(description.timeline);
-    const timelineParagraphs = splitIntoParagraphs(timelineText, 400);
-
-    // Try to parse year-based phases
-    const yearPattern = /year\s*(\d)/gi;
-    const hasYears = yearPattern.test(timelineText);
-
-    if (hasYears) {
-      // Display as timeline phases
-      const phases = timelineText.split(/(?=Year\s*\d)/i).filter(Boolean);
+    // Handle timeline as array of phase objects
+    if (Array.isArray(description.timeline)) {
+      const phases = description.timeline as Record<string, unknown>[];
       const phaseW = Math.min(2.3, 12 / Math.max(phases.length, 1) - 0.2);
       phases.slice(0, 5).forEach((phase, i) => {
         const px = 0.5 + i * (phaseW + 0.2);
-        // Phase box
         s11.addShape("roundRect" as PptxGenJS.ShapeType, {
           x: px, y: 1.3, w: phaseW, h: 5.0, rectRadius: 0.1,
           fill: { color: i === 0 ? SECTION_BG : CARD_BG },
           line: { color: BORDER_COLOR, width: 0.75 },
         });
-        // Phase header
         s11.addShape("rect" as PptxGenJS.ShapeType, {
           x: px, y: 1.3, w: phaseW, h: 0.5,
           fill: { color: BLUE },
         });
-        const yearMatch = phase.match(/Year\s*(\d)/i);
-        s11.addText(yearMatch ? `Year ${yearMatch[1]}` : `Phase ${i + 1}`, {
+        const phaseTitle = stringify(phase.phase || phase.year || `Phase ${i + 1}`);
+        s11.addText(phaseTitle, {
           x: px, y: 1.3, w: phaseW, h: 0.5,
           fontSize: 13, color: WHITE, fontFace: "Calibri", bold: true,
           align: "center", valign: "middle",
         });
-        // Phase content
-        const phaseContent = phase.replace(/Year\s*\d\s*[:–-]?\s*/i, "").trim();
-        s11.addText(truncate(phaseContent, 300), {
+        const milestones = stringify(phase.milestones || phase.activities || phase.description || "");
+        s11.addText(truncate(milestones, 300), {
           x: px + 0.1, y: 1.9, w: phaseW - 0.2, h: 4.3,
           fontSize: 9, color: DARK, fontFace: "Calibri",
           valign: "top", paraSpaceAfter: 4,
         });
       });
     } else {
-      // Fallback: display as text block
-      s11.addText(timelineParagraphs.map((p) => ({ text: p + "\n\n", options: { fontSize: 11, color: DARK, fontFace: "Calibri" as const } })), {
-        x: 0.5, y: 1.3, w: 12.2, h: 5.5,
-        valign: "top",
-      });
+      const timelineText = stringify(description.timeline);
+
+      // Try to parse year/phase-based sections
+      const phasePattern = /(?=(?:Year|Phase)\s*\d)/i;
+      const hasPhases = phasePattern.test(timelineText);
+
+      if (hasPhases) {
+        const phases = timelineText.split(phasePattern).filter(Boolean);
+        const phaseW = Math.min(2.3, 12 / Math.max(phases.length, 1) - 0.2);
+        phases.slice(0, 5).forEach((phase, i) => {
+          const px = 0.5 + i * (phaseW + 0.2);
+          s11.addShape("roundRect" as PptxGenJS.ShapeType, {
+            x: px, y: 1.3, w: phaseW, h: 5.0, rectRadius: 0.1,
+            fill: { color: i === 0 ? SECTION_BG : CARD_BG },
+            line: { color: BORDER_COLOR, width: 0.75 },
+          });
+          s11.addShape("rect" as PptxGenJS.ShapeType, {
+            x: px, y: 1.3, w: phaseW, h: 0.5,
+            fill: { color: BLUE },
+          });
+          const yearMatch = phase.match(/(?:Year|Phase)\s*(\d)/i);
+          s11.addText(yearMatch ? `Year ${yearMatch[1]}` : `Phase ${i + 1}`, {
+            x: px, y: 1.3, w: phaseW, h: 0.5,
+            fontSize: 13, color: WHITE, fontFace: "Calibri", bold: true,
+            align: "center", valign: "middle",
+          });
+          const phaseContent = phase.replace(/(?:Year|Phase)\s*\d\s*[:–\-]?\s*/i, "").trim();
+          s11.addText(truncate(phaseContent, 300), {
+            x: px + 0.1, y: 1.9, w: phaseW - 0.2, h: 4.3,
+            fontSize: 9, color: DARK, fontFace: "Calibri",
+            valign: "top", paraSpaceAfter: 4,
+          });
+        });
+      } else {
+        const timelineParagraphs = splitIntoParagraphs(timelineText, 400);
+        s11.addText(timelineParagraphs.map((p) => ({ text: p + "\n\n", options: { fontSize: 11, color: DARK, fontFace: "Calibri" as const } })), {
+          x: 0.5, y: 1.3, w: 12.2, h: 5.5,
+          valign: "top",
+        });
+      }
     }
-    addFooter(s11, `${title} | ${country}`);
+    addFooter(s11, footerText);
   }
 
   // ============================================================
-  // SLIDE 12: PERFORMANCE INDICATORS
+  // SLIDE 12: PERFORMANCE INDICATORS (enhanced 4-column table)
   // ============================================================
-  if (outcomes.length > 0 && outcomes.some((o) => (Array.isArray(o.indicators) ? o.indicators.length : 0) > 0)) {
+  if (outcomes.length > 0 && outcomes.some((o) => asStringArray(o.indicators).length > 0)) {
     const s12 = pptx.addSlide();
     addSlideHeader(s12, "Performance Indicators", "Baseline to target, and how it is verified");
 
-    const indicatorRows: PptxGenJS.TableRow[] = [
-      [
-        { text: "Outcome", options: { bold: true, fontSize: 9, color: WHITE, fill: { color: BLUE }, fontFace: "Calibri" as const } },
-        { text: "Indicator", options: { bold: true, fontSize: 9, color: WHITE, fill: { color: BLUE }, fontFace: "Calibri" as const } },
-      ],
-    ];
-
+    // Check if we can extract baseline/target from indicator text
+    const allIndicators: { outcome: string; indicator: string; baseline: string; target: string }[] = [];
     outcomes.forEach((outcome) => {
-      const indicators = Array.isArray(outcome.indicators) ? outcome.indicators as string[] : [];
+      const indicators = asStringArray(outcome.indicators);
       const outName = truncate(stringify(outcome.description || outcome.id || ""), 60);
-      indicators.slice(0, 3).forEach((ind, ii) => {
-        indicatorRows.push([
-          { text: ii === 0 ? outName : "", options: { fontSize: 9, color: DARK, bold: ii === 0, fontFace: "Calibri" as const, fill: { color: ii === 0 ? SECTION_BG : WHITE } } },
-          { text: truncate(stringify(ind), 200), options: { fontSize: 9, color: DARK, fontFace: "Calibri" as const } },
-        ]);
+      indicators.slice(0, 3).forEach((ind) => {
+        const parsed = parseIndicatorMetrics(stringify(ind));
+        allIndicators.push({
+          outcome: outName,
+          indicator: parsed.indicator || stringify(ind),
+          baseline: parsed.baseline,
+          target: parsed.target,
+        });
       });
     });
 
-    s12.addTable(indicatorRows, {
-      x: 0.5, y: 1.3, w: 12.2,
-      colW: [4.0, 8.2],
-      border: { type: "solid", pt: 0.5, color: BORDER_COLOR },
-      rowH: 0.4,
-      autoPage: true,
-    });
+    const hasMetrics = allIndicators.some((ind) => ind.baseline && ind.target);
 
-    // M&E note
+    if (hasMetrics) {
+      // 4-column table like Ethiopia
+      const headerOpts = { bold: true, fontSize: 9, color: WHITE, fill: { color: BLUE }, fontFace: "Calibri" as const };
+      const indicatorRows: PptxGenJS.TableRow[] = [
+        [
+          { text: "INDICATOR", options: headerOpts },
+          { text: "BASELINE", options: { ...headerOpts, align: "center" as const } },
+          { text: "TARGET", options: { ...headerOpts, align: "center" as const } },
+          { text: "MEANS OF VERIFICATION", options: headerOpts },
+        ],
+      ];
+
+      allIndicators.forEach((ind) => {
+        indicatorRows.push([
+          { text: truncate(ind.indicator, 120), options: { fontSize: 9, color: DARK, fontFace: "Calibri" as const } },
+          { text: ind.baseline || "-", options: { fontSize: 9, color: ACCENT_ORANGE, fontFace: "Calibri" as const, bold: true, align: "center" as const } },
+          { text: ind.target || "-", options: { fontSize: 9, color: ACCENT_GREEN, fontFace: "Calibri" as const, bold: true, align: "center" as const } },
+          { text: "Surveys, records, reports", options: { fontSize: 8, color: GRAY, fontFace: "Calibri" as const } },
+        ]);
+      });
+
+      s12.addTable(indicatorRows, {
+        x: 0.5, y: 1.3, w: 12.2,
+        colW: [4.5, 1.5, 1.5, 4.7],
+        border: { type: "solid", pt: 0.5, color: BORDER_COLOR },
+        rowH: 0.4,
+        autoPage: true,
+      });
+    } else {
+      // 2-column fallback
+      const indicatorRows: PptxGenJS.TableRow[] = [
+        [
+          { text: "Outcome", options: { bold: true, fontSize: 9, color: WHITE, fill: { color: BLUE }, fontFace: "Calibri" as const } },
+          { text: "Indicator", options: { bold: true, fontSize: 9, color: WHITE, fill: { color: BLUE }, fontFace: "Calibri" as const } },
+        ],
+      ];
+
+      let prevOutcome = "";
+      allIndicators.forEach((ind) => {
+        const showOutcome = ind.outcome !== prevOutcome;
+        prevOutcome = ind.outcome;
+        indicatorRows.push([
+          { text: showOutcome ? ind.outcome : "", options: { fontSize: 9, color: DARK, bold: showOutcome, fontFace: "Calibri" as const, fill: { color: showOutcome ? SECTION_BG : WHITE } } },
+          { text: truncate(ind.indicator, 200), options: { fontSize: 9, color: DARK, fontFace: "Calibri" as const } },
+        ]);
+      });
+
+      s12.addTable(indicatorRows, {
+        x: 0.5, y: 1.3, w: 12.2,
+        colW: [4.0, 8.2],
+        border: { type: "solid", pt: 0.5, color: BORDER_COLOR },
+        rowH: 0.4,
+        autoPage: true,
+      });
+    }
+
     if (management.meFramework) {
       s12.addText("M&E: " + truncate(stringify(management.meFramework), 250), {
         x: 0.5, y: 6.3, w: 12.2, h: 0.5,
         fontSize: 9, color: ACCENT_TEAL, fontFace: "Calibri", italic: true,
       });
     }
-    addFooter(s12, `${title} | ${country}`);
+    addFooter(s12, footerText);
   }
 
   // ============================================================
@@ -819,7 +987,6 @@ export async function generatePptx(
     const s13 = pptx.addSlide();
     addSlideHeader(s13, "Stakeholders & Implementation", "Who does what");
 
-    // Stakeholder table
     const stRows: PptxGenJS.TableRow[] = [
       [
         { text: "Stakeholder", options: { bold: true, fontSize: 9, color: WHITE, fill: { color: BLUE }, fontFace: "Calibri" as const } },
@@ -844,7 +1011,6 @@ export async function generatePptx(
       rowH: 0.38,
     });
 
-    // Management structure & beneficiary participation
     const bottomY = 1.3 + tableH + 0.3;
     const remainingH = 6.5 - bottomY;
 
@@ -861,7 +1027,28 @@ export async function generatePptx(
       addSectionBox(s13, 0.5, bottomY, 12.2, Math.min(remainingH, 1.8),
         "Beneficiary Participation", truncate(stringify(stakeholderAnalysis.beneficiaryParticipation), 400), ACCENT_GREEN);
     }
-    addFooter(s13, `${title} | ${country}`);
+    addFooter(s13, footerText);
+  } else if (management.managementStructure || stakeholderAnalysis.beneficiaryParticipation) {
+    // Fallback: show management/participation even without structured stakeholders
+    const s13 = pptx.addSlide();
+    addSlideHeader(s13, "Implementation Arrangement", "How the project is managed");
+
+    let yPos = 1.3;
+    if (management.implementationArrangement) {
+      addSectionBox(s13, 0.5, yPos, 12.2, 1.8,
+        "Implementation Arrangement", truncate(stringify(management.implementationArrangement), 500), BLUE);
+      yPos += 2.0;
+    }
+    if (management.managementStructure) {
+      addSectionBox(s13, 0.5, yPos, 12.2, 1.8,
+        "Management Structure", truncate(stringify(management.managementStructure), 500), ACCENT_TEAL);
+      yPos += 2.0;
+    }
+    if (stakeholderAnalysis.beneficiaryParticipation) {
+      addSectionBox(s13, 0.5, yPos, 12.2, 1.5,
+        "Beneficiary Participation", truncate(stringify(stakeholderAnalysis.beneficiaryParticipation), 400), ACCENT_GREEN);
+    }
+    addFooter(s13, footerText);
   }
 
   // ============================================================
@@ -871,7 +1058,6 @@ export async function generatePptx(
     const s14 = pptx.addSlide();
     addSlideHeader(s14, "Risk Analysis", "Key risks and mitigation strategies");
 
-    // Risk matrix header
     const riskHeaderRow: PptxGenJS.TableRow = [
       { text: "RISK", options: { bold: true, fontSize: 9, color: WHITE, fill: { color: DARK_BLUE }, fontFace: "Calibri" as const } },
       { text: "IMPACT", options: { bold: true, fontSize: 9, color: WHITE, fill: { color: DARK_BLUE }, fontFace: "Calibri" as const, align: "center" as const } },
@@ -896,7 +1082,13 @@ export async function generatePptx(
       border: { type: "solid", pt: 0.5, color: BORDER_COLOR },
       rowH: 0.55,
     });
-    addFooter(s14, `${title} | ${country}`);
+    addFooter(s14, footerText);
+  } else if (management.risks && typeof management.risks === "string") {
+    // Fallback: risk as text block
+    const s14 = pptx.addSlide();
+    addSlideHeader(s14, "Risk Analysis", "Key risks and mitigation strategies");
+    addSectionBox(s14, 0.5, 1.3, 12.2, 5.0, "Risk Analysis", truncate(stringify(management.risks), 1000), ACCENT_RED);
+    addFooter(s14, footerText);
   }
 
   // ============================================================
@@ -906,17 +1098,23 @@ export async function generatePptx(
     const sustainPillars: { title: string; text: string; color: string }[] = [];
     if (management.sustainabilityPlan) {
       const sustText = stringify(management.sustainabilityPlan);
-      // Try to split into sub-pillars
-      const chunks = splitIntoParagraphs(sustText, 300);
-      if (chunks.length >= 3) {
-        sustainPillars.push({ title: "Financial & Economic", text: chunks[0], color: BLUE });
-        sustainPillars.push({ title: "Technical & Capacity", text: chunks[1], color: ACCENT_GREEN });
-        sustainPillars.push({ title: "Institutional & Social", text: chunks.slice(2).join(" "), color: ACCENT_TEAL });
+      // Try to intelligently split into pillars
+      const parsed = parseSustainabilityPillars(sustText);
+      if (parsed.length >= 2) {
+        sustainPillars.push(...parsed);
       } else {
-        sustainPillars.push({ title: "Sustainability Plan", text: sustText, color: BLUE });
+        // Fallback: split by sentences into 3 pillars
+        const chunks = splitIntoParagraphs(sustText, 300);
+        if (chunks.length >= 3) {
+          sustainPillars.push({ title: "Financial & Economic", text: chunks[0], color: BLUE });
+          sustainPillars.push({ title: "Technical & Capacity", text: chunks[1], color: ACCENT_GREEN });
+          sustainPillars.push({ title: "Institutional & Social", text: chunks.slice(2).join(" "), color: ACCENT_TEAL });
+        } else {
+          sustainPillars.push({ title: "Sustainability Plan", text: sustText, color: BLUE });
+        }
       }
     }
-    if (management.implementationArrangement) {
+    if (management.implementationArrangement && !sustainPillars.some((p) => p.title.includes("Implementation"))) {
       sustainPillars.push({ title: "Implementation Arrangement", text: stringify(management.implementationArrangement), color: ACCENT_ORANGE });
     }
     if (management.meFramework && !sustainPillars.some((p) => p.title.includes("M&E"))) {
@@ -941,23 +1139,122 @@ export async function generatePptx(
           addSectionBox(s15, 0.5 + col * 6.25, 1.3 + row * (boxH + 0.2), colW2, boxH, pillar.title, truncate(pillar.text, 300), pillar.color);
         });
       } else {
-        // Stack
         const boxH = Math.min(1.5, 5.5 / sustainPillars.length);
         sustainPillars.slice(0, 5).forEach((pillar, i) => {
           addSectionBox(s15, 0.5, 1.3 + i * (boxH + 0.15), 12.2, boxH, pillar.title, truncate(pillar.text, 350), pillar.color);
         });
       }
-      addFooter(s15, `${title} | ${country}`);
+      addFooter(s15, footerText);
     }
   }
 
   // ============================================================
-  // SLIDE 16: WHY THIS PROJECT + THANK YOU
+  // SLIDE 16: WHY THIS PROJECT
+  // ============================================================
+  {
+    const whyPoints: { title: string; text: string }[] = [];
+
+    // Build compelling arguments from the data
+    if (rationale.cpsAlignment || rationale.nationalPlanAlignment) {
+      whyPoints.push({
+        title: "Anchored in proven strategy",
+        text: truncate(stringify(rationale.cpsAlignment || rationale.nationalPlanAlignment), 180),
+      });
+    }
+    if (rationale.similarProjects) {
+      whyPoints.push({
+        title: "Built on evidence",
+        text: truncate(stringify(rationale.similarProjects), 180),
+      });
+    }
+    if (management.sustainabilityPlan) {
+      whyPoints.push({
+        title: "Designed to outlive the funding",
+        text: truncate(stringify(management.sustainabilityPlan), 180),
+      });
+    }
+    if (whyPoints.length < 2 && rationale.problemAnalysis) {
+      whyPoints.push({
+        title: "Addresses a critical gap",
+        text: truncate(stringify(rationale.problemAnalysis), 180),
+      });
+    }
+    if (whyPoints.length < 3 && outcomes.length > 0) {
+      const outcomesSummary = outcomes.map((o) => stringify(o.description || "")).join("; ");
+      whyPoints.push({
+        title: "Clear measurable outcomes",
+        text: truncate(outcomesSummary, 180),
+      });
+    }
+
+    if (whyPoints.length > 0) {
+      const sWhy = pptx.addSlide();
+      sWhy.background = { fill: DARK_BLUE };
+      sWhy.addShape("rect" as PptxGenJS.ShapeType, {
+        x: 0, y: 0, w: 13.33, h: 0.06, fill: { color: WHITE },
+      });
+
+      sWhy.addText("WHY THIS PROJECT", {
+        x: 0, y: 0.6, w: 13.33, h: 0.8,
+        fontSize: 28, color: WHITE, fontFace: "Calibri", bold: true,
+        align: "center",
+      });
+
+      // Subtitle
+      const whySubtitle = basicInfo.projectObjectives
+        ? truncate(stringify(basicInfo.projectObjectives), 120)
+        : `A targeted investment in ${sectorLabel.toLowerCase()} for ${country}`;
+      sWhy.addText(whySubtitle, {
+        x: 1, y: 1.3, w: 11.33, h: 0.5,
+        fontSize: 13, color: "A0C0FF", fontFace: "Calibri", italic: true,
+        align: "center",
+      });
+
+      whyPoints.slice(0, 3).forEach((point, i) => {
+        const py = 2.2 + i * 1.5;
+        // Number circle
+        sWhy.addShape("ellipse" as PptxGenJS.ShapeType, {
+          x: 1.0, y: py + 0.1, w: 0.5, h: 0.5,
+          fill: { color: BLUE },
+        });
+        sWhy.addText(String(i + 1), {
+          x: 1.0, y: py + 0.1, w: 0.5, h: 0.5,
+          fontSize: 16, color: WHITE, fontFace: "Calibri", bold: true,
+          align: "center", valign: "middle",
+        });
+        // Title and text
+        sWhy.addText(point.title, {
+          x: 1.7, y: py, w: 10.5, h: 0.4,
+          fontSize: 16, color: WHITE, fontFace: "Calibri", bold: true,
+        });
+        sWhy.addText(point.text, {
+          x: 1.7, y: py + 0.45, w: 10.5, h: 0.8,
+          fontSize: 11, color: "C0D0FF", fontFace: "Calibri",
+          valign: "top",
+        });
+      });
+
+      // Bottom summary
+      const whySummaryParts = [
+        basicInfo.responsibleMinistry ? stringify(basicInfo.responsibleMinistry) : "",
+        country,
+        totalCost ? formatCurrency(totalCost, currency) : "",
+        duration ? stringify(duration) : "",
+      ].filter(Boolean);
+      sWhy.addText(whySummaryParts.join("  ·  "), {
+        x: 1, y: 6.5, w: 11.33, h: 0.4,
+        fontSize: 11, color: "7090CC", fontFace: "Calibri", italic: true,
+        align: "center",
+      });
+    }
+  }
+
+  // ============================================================
+  // SLIDE 17: THANK YOU
   // ============================================================
   const sLast = pptx.addSlide();
   sLast.background = { fill: BLUE };
 
-  // Top accent
   sLast.addShape("rect" as PptxGenJS.ShapeType, {
     x: 0, y: 0, w: 13.33, h: 0.06, fill: { color: WHITE },
   });
@@ -973,7 +1270,6 @@ export async function generatePptx(
     align: "center",
   });
 
-  // Summary line with key facts
   const summaryParts = [
     basicInfo.responsibleMinistry ? stringify(basicInfo.responsibleMinistry) : "",
     country,
@@ -993,33 +1289,4 @@ export async function generatePptx(
   });
 
   return await pptx.write({ outputType: "blob" }) as Blob;
-}
-
-// Helper for logical framework level
-function slide_addFrameworkLevel(
-  slide: PptxGenJS.Slide,
-  x: number, y: number, w: number, h: number,
-  label: string, text: string, color: string
-) {
-  // Label badge
-  slide.addShape("roundRect" as PptxGenJS.ShapeType, {
-    x, y, w: 1.5, h, rectRadius: 0.08,
-    fill: { color },
-  });
-  slide.addText(label, {
-    x, y, w: 1.5, h,
-    fontSize: 10, color: WHITE, fontFace: "Calibri", bold: true,
-    align: "center", valign: "middle",
-  });
-  // Content area
-  slide.addShape("roundRect" as PptxGenJS.ShapeType, {
-    x: x + 1.55, y, w: w - 1.55, h, rectRadius: 0.08,
-    fill: { color: CARD_BG },
-    line: { color, width: 1 },
-  });
-  slide.addText(text, {
-    x: x + 1.7, y, w: w - 1.85, h,
-    fontSize: 10, color: DARK, fontFace: "Calibri",
-    valign: "middle",
-  });
 }

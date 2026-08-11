@@ -80,16 +80,87 @@ Requirements:
 5. Sustainability plan addresses institutional, financial, and technical sustainability
 6. Budget is realistic and properly categorized
 
-IMPORTANT: Be concise. Use 2-3 sentences per paragraph. Limit lists to 3-5 items. Do NOT add excessive sub-sections or deeply nested structures.
+IMPORTANT: Be concise. Use 2-3 sentences per paragraph. Do NOT add excessive sub-sections or deeply nested structures.
 
-Respond with ONLY valid JSON (no markdown, no explanation before or after). Use this structure:
+Respond with ONLY valid JSON (no markdown, no explanation before or after). Use EXACTLY this structure — every field must match the types shown:
+
 {
-  "basicInfo": { ... },
-  "rationale": { ... },
-  "description": { ... },
-  "stakeholderAnalysis": { ... },
-  "management": { ... }
-}`;
+  "basicInfo": {
+    "projectTitle": "string",
+    "requestingCountry": "string",
+    "implementingAgency": "string",
+    "responsibleMinistry": "string",
+    "projectLocation": "string",
+    "projectDuration": "string (e.g. '5 years (2027-2031)')",
+    "totalProjectCost": number,
+    "currency": "USD",
+    "targetBeneficiaries": {
+      "direct": "string (e.g. '80,000 smallholder farmers')",
+      "indirect": "string (e.g. '200,000 household members')",
+      "totalCount": "string"
+    },
+    "projectObjectives": "string (2-3 sentences)",
+    "sdgsAlignment": [1, 2, 8]
+  },
+  "rationale": {
+    "countryContext": "string (2-3 sentences with data)",
+    "sectorContext": "string (2-3 sentences with data)",
+    "problemAnalysis": "string (3-5 sentences describing core problem with specific data/statistics)",
+    "needsAssessment": "string (3-5 sentences with gaps and evidence)",
+    "nationalPlanAlignment": "string (2-3 sentences)",
+    "cpsAlignment": "string (2-3 sentences)",
+    "similarProjects": "string (2-3 sentences on related donor projects and coordination)",
+    "genderAnalysis": "string (2-3 sentences with gender-specific data)"
+  },
+  "description": {
+    "overallGoal": "string (1-2 sentences, long-term impact)",
+    "projectPurpose": "string (1-2 sentences, specific measurable objective at completion)",
+    "expectedOutcomes": [
+      {
+        "id": "1",
+        "description": "string (concise outcome statement)",
+        "indicators": ["string (SMART indicator with baseline and target)", "..."],
+        "outputs": [
+          {
+            "description": "string (concrete deliverable)",
+            "activities": ["string (specific activity)", "..."]
+          }
+        ]
+      }
+    ],
+    "budgetPlan": [
+      { "category": "string", "amount": number, "percentage": number, "description": "string (1 sentence)" }
+    ],
+    "timeline": "string (describe implementation phases by year, starting each phase with 'Year 1:', 'Year 2:', etc.)"
+  },
+  "stakeholderAnalysis": {
+    "stakeholders": [
+      { "name": "string", "type": "government|international|ngo|private|community", "role": "string (1-2 sentences)", "coordinationMechanism": "string" }
+    ],
+    "beneficiaryParticipation": "string (2-3 sentences)"
+  },
+  "management": {
+    "implementationArrangement": "string (2-3 sentences)",
+    "managementStructure": "string (2-3 sentences describing PMU, steering committee, etc.)",
+    "meFramework": "string (2-3 sentences)",
+    "risks": [
+      { "description": "string", "likelihood": "High|Medium|Low", "impact": "High|Medium|Low", "mitigation": "string (1-2 sentences)" }
+    ],
+    "sustainabilityPlan": "string (3-5 sentences covering financial, technical, and institutional sustainability)",
+    "localProcurement": "string (1-2 sentences)"
+  }
+}
+
+CRITICAL RULES for JSON output:
+- sdgsAlignment MUST be an array of numbers like [1, 4, 5], NOT strings
+- expectedOutcomes MUST be an array of objects, each with "outputs" as array of objects containing "activities" as string array
+- stakeholders MUST be an array of objects with name/type/role/coordinationMechanism
+- risks MUST be an array of objects with description/likelihood/impact/mitigation
+- budgetPlan MUST be an array of objects with category/amount/percentage/description
+- Include 3-4 outcomes, each with 2-3 outputs, each output with 2-3 activities
+- Include 5-7 stakeholders, 4-6 budget items, 4-5 risks
+- All monetary amounts as numbers (not strings): 15000000 not "15,000,000"
+- Include specific data/statistics throughout (percentages, counts, baselines, targets)`;
 
 export const PCP_SECTION_ASSIST_PROMPT = `You are assisting with writing a specific section of a PCP document.
 
