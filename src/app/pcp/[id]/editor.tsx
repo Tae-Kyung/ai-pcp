@@ -313,6 +313,43 @@ export function PCPEditor({ project, document }: { project: Project; document: D
           </ul>
         );
       }
+      // Array of objects → columnar table
+      if (value.every((item) => typeof item === "object" && item !== null && !Array.isArray(item))) {
+        const allKeys = new Set<string>();
+        for (const item of value) {
+          for (const k of Object.keys(item as Record<string, unknown>)) allKeys.add(k);
+        }
+        const keys = Array.from(allKeys);
+        return (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr>
+                  {keys.map((key) => (
+                    <th key={key} className="border border-zinc-300 bg-zinc-100 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                      {formatLabel(key)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {value.map((item, i) => {
+                  const row = item as Record<string, unknown>;
+                  return (
+                    <tr key={i} className={i % 2 === 1 ? "bg-zinc-50 dark:bg-zinc-800/50" : ""}>
+                      {keys.map((key) => (
+                        <td key={key} className="border border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                          {renderValue(row[key], `${path}.${i}.${key}`, depth + 1)}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
       return (
         <div className="space-y-3">
           {value.map((item, i) => (
@@ -326,12 +363,60 @@ export function PCPEditor({ project, document }: { project: Project; document: D
 
     if (typeof value === "object") {
       const entries = Object.entries(value as Record<string, unknown>);
+      // Top-level section object with mostly simple values → key-value table
+      const isTopLevel = !path.includes(".");
+      const simpleCount = entries.filter(([, v]) =>
+        typeof v === "string" || typeof v === "number" || typeof v === "boolean" ||
+        (Array.isArray(v) && v.every((i) => typeof i === "string" || typeof i === "number"))
+      ).length;
+      const useTable = isTopLevel && simpleCount >= 3;
+
+      if (useTable) {
+        // Split into simple fields (table) and complex fields (below)
+        const simpleEntries = entries.filter(([, v]) =>
+          typeof v === "string" || typeof v === "number" || typeof v === "boolean" ||
+          (Array.isArray(v) && v.every((i) => typeof i === "string" || typeof i === "number"))
+        );
+        const complexEntries = entries.filter(([, v]) =>
+          !(typeof v === "string" || typeof v === "number" || typeof v === "boolean" ||
+          (Array.isArray(v) && v.every((i) => typeof i === "string" || typeof i === "number")))
+        );
+        return (
+          <div className="space-y-4">
+            {simpleEntries.length > 0 && (
+              <table className="w-full text-sm border-collapse">
+                <tbody>
+                  {simpleEntries.map(([key, val], i) => (
+                    <tr key={key} className={i % 2 === 1 ? "bg-zinc-50 dark:bg-zinc-800/50" : ""}>
+                      <td className="border border-zinc-200 px-3 py-2 font-medium text-zinc-600 w-1/3 dark:border-zinc-700 dark:text-zinc-400">
+                        {formatLabel(key)}
+                      </td>
+                      <td className="border border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                        {renderValue(val, `${path}.${key}`, depth + 1)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {complexEntries.map(([key, val]) => (
+              <div key={key}>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 mb-2 mt-4">
+                  {formatLabel(key)}
+                </h3>
+                {renderValue(val, `${path}.${key}`, depth + 1)}
+              </div>
+            ))}
+          </div>
+        );
+      }
+
       return (
         <dl className="space-y-3">
           {entries.map(([key, val]) => (
             <div key={key}>
               <dt className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                {key.replace(/([A-Z])/g, " $1").trim()}
+                {formatLabel(key)}
               </dt>
               <dd className="mt-0.5 text-sm">{renderValue(val, `${path}.${key}`, depth + 1)}</dd>
             </div>
@@ -341,6 +426,32 @@ export function PCPEditor({ project, document }: { project: Project; document: D
     }
 
     return <span>{String(value)}</span>;
+  }
+
+  function formatLabel(key: string): string {
+    const labels: Record<string, string> = {
+      projectTitle: "Project Title", requestingCountry: "Requesting Country",
+      implementingAgency: "Implementing Agency", responsibleMinistry: "Responsible Ministry",
+      projectLocation: "Project Location", projectDuration: "Project Duration",
+      totalProjectCost: "Total Project Cost", targetBeneficiaries: "Target Beneficiaries",
+      projectObjectives: "Project Objectives", sdgsAlignment: "SDGs Alignment",
+      countryContext: "Country Context", sectorContext: "Sector Context",
+      problemAnalysis: "Problem Analysis", needsAssessment: "Needs Assessment",
+      nationalPlanAlignment: "National Plan Alignment", cpsAlignment: "CPS Alignment",
+      similarProjects: "Similar Projects", genderAnalysis: "Gender Analysis",
+      overallGoal: "Overall Goal", projectPurpose: "Project Purpose",
+      expectedOutcomes: "Expected Outcomes", budgetPlan: "Budget Plan",
+      stakeholders: "Stakeholders", beneficiaryParticipation: "Beneficiary Participation",
+      implementationArrangement: "Implementation Arrangement",
+      managementStructure: "Management Structure", meFramework: "M&E Framework",
+      risks: "Risks", sustainabilityPlan: "Sustainability Plan",
+      localProcurement: "Local Procurement", description: "Description",
+      likelihood: "Likelihood", impact: "Impact", mitigation: "Mitigation",
+      name: "Name", type: "Type", role: "Role", category: "Category",
+      amount: "Amount", percentage: "%", indicators: "Indicators",
+      outputs: "Outputs", activities: "Activities", coordinationMechanism: "Coordination",
+    };
+    return labels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase()).trim();
   }
 
   const sectionData = content[activeSection];
