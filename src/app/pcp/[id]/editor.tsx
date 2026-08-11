@@ -146,10 +146,12 @@ export function PCPEditor({ project, document }: { project: Project; document: D
 
   async function handleDownloadPptx() {
     try {
+      console.log("handleDownloadPptx called, content keys:", Object.keys(content));
       const blob = await generatePptx(content, project.title, project.country, project.sector);
       downloadBlob(blob, `${filePrefix}_PCP.pptx`);
     } catch (e) {
       console.error("Failed to generate PowerPoint file:", e);
+      alert("Failed to generate PowerPoint file: " + (e instanceof Error ? e.message : String(e)));
     }
   }
 

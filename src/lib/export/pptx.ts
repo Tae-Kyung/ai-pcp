@@ -232,11 +232,11 @@ export async function generatePptx(
 
   const beneficiaries = basicInfo.targetBeneficiaries as Record<string, unknown> | undefined;
   const currency = (basicInfo.currency as string) || "USD";
-  const outcomes = (description.expectedOutcomes ?? []) as Record<string, unknown>[];
-  const budgetItems = (description.budgetPlan ?? []) as Record<string, unknown>[];
-  const stakeholders = (stakeholderAnalysis.stakeholders ?? []) as Record<string, unknown>[];
-  const risks = (management.risks ?? []) as Record<string, unknown>[];
-  const sdgs = (basicInfo.sdgsAlignment ?? []) as number[];
+  const outcomes = Array.isArray(description.expectedOutcomes) ? description.expectedOutcomes as Record<string, unknown>[] : [];
+  const budgetItems = Array.isArray(description.budgetPlan) ? description.budgetPlan as Record<string, unknown>[] : [];
+  const stakeholders = Array.isArray(stakeholderAnalysis.stakeholders) ? stakeholderAnalysis.stakeholders as Record<string, unknown>[] : [];
+  const risks = Array.isArray(management.risks) ? management.risks as Record<string, unknown>[] : [];
+  const sdgs = Array.isArray(basicInfo.sdgsAlignment) ? basicInfo.sdgsAlignment as number[] : [];
   const sectorLabel = sector.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
   // ============================================================
@@ -496,13 +496,13 @@ export async function generatePptx(
     frameworkLevels.push({ label: "OUTCOMES", text: outcomeSummary, color: ACCENT_TEAL });
   }
   // Collect all outputs
-  const allOutputs = outcomes.flatMap((o) => (o.outputs as Record<string, unknown>[] || []));
+  const allOutputs = outcomes.flatMap((o) => Array.isArray(o.outputs) ? o.outputs as Record<string, unknown>[] : []);
   if (allOutputs.length > 0) {
     const outputSummary = allOutputs.slice(0, 6).map((o) => truncate(stringify(o.description || ""), 60)).join(" · ");
     frameworkLevels.push({ label: "OUTPUTS", text: outputSummary, color: ACCENT_GREEN });
   }
   // Collect all activities
-  const allActivities = allOutputs.flatMap((o) => (o.activities as string[] || []));
+  const allActivities = allOutputs.flatMap((o) => Array.isArray(o.activities) ? o.activities as string[] : []);
   if (allActivities.length > 0) {
     const actSummary = allActivities.slice(0, 6).map((a) => truncate(stringify(a), 50)).join(" · ");
     frameworkLevels.push({ label: "ACTIVITIES", text: actSummary, color: ACCENT_ORANGE });
@@ -541,7 +541,7 @@ export async function generatePptx(
     const outcomeH = Math.min(1.3, 5.5 / outcomes.length);
     outcomes.slice(0, 5).forEach((outcome, i) => {
       const oy = 1.3 + i * (outcomeH + 0.15);
-      const indicators = (outcome.indicators as string[]) || [];
+      const indicators = Array.isArray(outcome.indicators) ? outcome.indicators as string[] : [];
 
       // Number badge
       s7.addShape("roundRect" as PptxGenJS.ShapeType, {
@@ -578,13 +578,13 @@ export async function generatePptx(
   // ============================================================
   // SLIDE 8: KEY OUTPUTS
   // ============================================================
-  if (outcomes.some((o) => ((o.outputs as unknown[]) || []).length > 0)) {
+  if (outcomes.some((o) => Array.isArray(o.outputs) && o.outputs.length > 0)) {
     const s8 = pptx.addSlide();
     addSlideHeader(s8, "Key Outputs", "Deliverables across all components");
 
     let yPos = 1.3;
     outcomes.slice(0, 4).forEach((outcome, oi) => {
-      const outputs = (outcome.outputs as Record<string, unknown>[]) || [];
+      const outputs = Array.isArray(outcome.outputs) ? outcome.outputs as Record<string, unknown>[] : [];
       if (outputs.length === 0) return;
 
       // Component header
@@ -623,9 +623,9 @@ export async function generatePptx(
   {
     const activities: { text: string; component: string }[] = [];
     outcomes.forEach((o, oi) => {
-      const outputs = (o.outputs as Record<string, unknown>[]) || [];
+      const outputs = Array.isArray(o.outputs) ? o.outputs as Record<string, unknown>[] : [];
       outputs.forEach((output) => {
-        const acts = (output.activities as string[]) || [];
+        const acts = Array.isArray(output.activities) ? output.activities as string[] : [];
         acts.forEach((a) => activities.push({ text: stringify(a), component: `Component ${oi + 1}` }));
       });
     });
@@ -772,7 +772,7 @@ export async function generatePptx(
   // ============================================================
   // SLIDE 12: PERFORMANCE INDICATORS
   // ============================================================
-  if (outcomes.length > 0 && outcomes.some((o) => ((o.indicators as string[]) || []).length > 0)) {
+  if (outcomes.length > 0 && outcomes.some((o) => (Array.isArray(o.indicators) ? o.indicators.length : 0) > 0)) {
     const s12 = pptx.addSlide();
     addSlideHeader(s12, "Performance Indicators", "Baseline to target, and how it is verified");
 
@@ -784,7 +784,7 @@ export async function generatePptx(
     ];
 
     outcomes.forEach((outcome) => {
-      const indicators = (outcome.indicators as string[]) || [];
+      const indicators = Array.isArray(outcome.indicators) ? outcome.indicators as string[] : [];
       const outName = truncate(stringify(outcome.description || outcome.id || ""), 60);
       indicators.slice(0, 3).forEach((ind, ii) => {
         indicatorRows.push([
