@@ -10,6 +10,8 @@ import {
   TableCell,
   WidthType,
   Packer,
+  ShadingType,
+  VerticalAlign,
 } from "docx";
 
 const SECTION_TITLES: Record<string, string> = {
@@ -54,73 +56,278 @@ const FIELD_LABELS: Record<string, string> = {
   risks: "Risks",
   sustainabilityPlan: "Sustainability Plan",
   localProcurement: "Local Procurement",
+  description: "Description",
+  likelihood: "Likelihood",
+  impact: "Impact",
+  mitigation: "Mitigation",
+  name: "Name",
+  type: "Type",
+  role: "Role",
+  coordinationMechanism: "Coordination",
+  category: "Category",
+  amount: "Amount",
+  percentage: "%",
+  id: "ID",
+  indicators: "Indicators",
+  outputs: "Outputs",
+  activities: "Activities",
+  direct: "Direct",
+  indirect: "Indirect",
+  totalCount: "Total Count",
 };
 
 function getLabel(key: string): string {
   return FIELD_LABELS[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase()).trim();
 }
 
-function renderValueToParagraphs(value: unknown, level: number = 0): Paragraph[] {
-  const paragraphs: Paragraph[] = [];
+function stringify(value: unknown): string {
+  if (value === null || value === undefined) return "-";
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return value.toLocaleString();
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    if (value.every((v) => typeof v === "string" || typeof v === "number")) {
+      return value.join(", ");
+    }
+    return value.map((v) => stringify(v)).join("\n");
+  }
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => `${getLabel(k)}: ${stringify(v)}`)
+      .join("\n");
+  }
+  return String(value);
+}
 
-  if (value === null || value === undefined) return paragraphs;
+const BORDER = {
+  top: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+  bottom: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+  left: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+  right: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+} as const;
+
+const HEADER_SHADING = { type: ShadingType.SOLID, color: "1a56db", fill: "1a56db" } as const;
+const ALT_SHADING = { type: ShadingType.SOLID, color: "F5F7FA", fill: "F5F7FA" } as const;
+
+function makeHeaderCell(text: string, width?: number): TableCell {
+  return new TableCell({
+    children: [new Paragraph({
+      children: [new TextRun({ text, bold: true, size: 20, color: "FFFFFF", font: "Calibri" })],
+      spacing: { before: 40, after: 40 },
+    })],
+    borders: BORDER,
+    shading: HEADER_SHADING,
+    verticalAlign: VerticalAlign.CENTER,
+    ...(width ? { width: { size: width, type: WidthType.PERCENTAGE } } : {}),
+  });
+}
+
+function makeCell(text: string, bold = false, shading?: typeof ALT_SHADING): TableCell {
+  return new TableCell({
+    children: [new Paragraph({
+      children: [new TextRun({ text, size: 20, bold, font: "Calibri" })],
+      spacing: { before: 40, after: 40 },
+    })],
+    borders: BORDER,
+    verticalAlign: VerticalAlign.TOP,
+    ...(shading ? { shading } : {}),
+  });
+}
+
+// Key-value table (for basicInfo-like flat objects)
+function makeKeyValueTable(data: Record<string, unknown>): Table {
+  const rows: TableRow[] = [];
+  let idx = 0;
+  for (const [key, value] of Object.entries(data)) {
+    // Skip deeply nested objects - render them separately
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      // Flatten one level for nested objects like targetBeneficiaries
+      for (const [subKey, subVal] of Object.entries(value as Record<string, unknown>)) {
+        const shading = idx % 2 === 1 ? ALT_SHADING : undefined;
+        rows.push(new TableRow({
+          children: [
+            makeCell(`${getLabel(key)} - ${getLabel(subKey)}`, true, shading),
+            makeCell(stringify(subVal), false, shading),
+          ],
+        }));
+        idx++;
+      }
+      continue;
+    }
+    const shading = idx % 2 === 1 ? ALT_SHADING : undefined;
+    rows.push(new TableRow({
+      children: [
+        makeCell(getLabel(key), true, shading),
+        makeCell(stringify(value), false, shading),
+      ],
+    }));
+    idx++;
+  }
+  return new Table({
+    rows,
+    width: { size: 100, type: WidthType.PERCENTAGE },
+  });
+}
+
+// Check if an array of objects has consistent keys (suitable for a columnar table)
+function isTabularArray(arr: unknown[]): arr is Record<string, unknown>[] {
+  if (arr.length === 0) return false;
+  return arr.every((item) => typeof item === "object" && item !== null && !Array.isArray(item));
+}
+
+// Columnar table for arrays of objects
+function makeColumnarTable(arr: Record<string, unknown>[]): Table {
+  // Collect all keys across all items
+  const allKeys = new Set<string>();
+  for (const item of arr) {
+    for (const key of Object.keys(item)) allKeys.add(key);
+  }
+  const keys = Array.from(allKeys);
+
+  // Header row
+  const headerRow = new TableRow({
+    children: keys.map((key) => makeHeaderCell(getLabel(key))),
+  });
+
+  // Data rows
+  const dataRows = arr.map((item, idx) => {
+    const shading = idx % 2 === 1 ? ALT_SHADING : undefined;
+    return new TableRow({
+      children: keys.map((key) => makeCell(stringify(item[key]), false, shading)),
+    });
+  });
+
+  return new Table({
+    rows: [headerRow, ...dataRows],
+    width: { size: 100, type: WidthType.PERCENTAGE },
+  });
+}
+
+// Sections that should use key-value table format
+const KEY_VALUE_SECTIONS = new Set(["basicInfo"]);
+
+// Fields within sections that are arrays of objects (should be columnar tables)
+// These are auto-detected, but we can hint for known fields
+const KNOWN_TABLE_FIELDS = new Set([
+  "budgetPlan", "risks", "stakeholders", "expectedOutcomes",
+  "outputs", "activities", "indicators",
+]);
+
+type DocChild = Paragraph | Table;
+
+function renderSection(key: string, data: unknown): DocChild[] {
+  const elements: DocChild[] = [];
+
+  if (data === null || data === undefined) {
+    elements.push(new Paragraph({
+      children: [new TextRun({ text: "(No content)", italics: true, color: "999999", size: 22 })],
+    }));
+    return elements;
+  }
+
+  // Key-value table for basicInfo
+  if (KEY_VALUE_SECTIONS.has(key) && typeof data === "object" && !Array.isArray(data)) {
+    elements.push(makeKeyValueTable(data as Record<string, unknown>));
+    return elements;
+  }
+
+  // For other sections, render field by field
+  if (typeof data === "object" && !Array.isArray(data)) {
+    for (const [fieldKey, fieldVal] of Object.entries(data as Record<string, unknown>)) {
+      // Sub-heading
+      elements.push(new Paragraph({
+        children: [new TextRun({ text: getLabel(fieldKey), bold: true, size: 24, color: "333333" })],
+        spacing: { before: 200, after: 80 },
+      }));
+
+      elements.push(...renderValue(fieldVal, fieldKey));
+    }
+    return elements;
+  }
+
+  elements.push(...renderValue(data, key));
+  return elements;
+}
+
+function renderValue(value: unknown, fieldKey: string = ""): DocChild[] {
+  const elements: DocChild[] = [];
+
+  if (value === null || value === undefined) return elements;
 
   if (typeof value === "string") {
-    paragraphs.push(
-      new Paragraph({
-        children: [new TextRun({ text: value, size: 22 })],
-        spacing: { after: 120 },
-        indent: { left: level * 360 },
-      })
-    );
-    return paragraphs;
+    // Split long text into paragraphs
+    const paras = value.split("\n").filter((p) => p.trim());
+    for (const para of paras) {
+      elements.push(new Paragraph({
+        children: [new TextRun({ text: para, size: 22 })],
+        spacing: { after: 100 },
+      }));
+    }
+    return elements;
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
-    paragraphs.push(
-      new Paragraph({
-        children: [new TextRun({ text: String(value), size: 22 })],
-        spacing: { after: 120 },
-        indent: { left: level * 360 },
-      })
-    );
-    return paragraphs;
+    elements.push(new Paragraph({
+      children: [new TextRun({ text: String(value), size: 22 })],
+      spacing: { after: 100 },
+    }));
+    return elements;
   }
 
   if (Array.isArray(value)) {
-    for (const item of value) {
-      if (typeof item === "string" || typeof item === "number") {
-        paragraphs.push(
-          new Paragraph({
-            children: [new TextRun({ text: `• ${String(item)}`, size: 22 })],
-            spacing: { after: 60 },
-            indent: { left: level * 360 },
-          })
-        );
-      } else {
-        paragraphs.push(...renderValueToParagraphs(item, level));
-        paragraphs.push(new Paragraph({ spacing: { after: 80 } }));
+    // Array of simple values → bullet list
+    if (value.every((v) => typeof v === "string" || typeof v === "number")) {
+      for (const item of value) {
+        elements.push(new Paragraph({
+          children: [new TextRun({ text: `• ${String(item)}`, size: 22 })],
+          spacing: { after: 40 },
+          indent: { left: 360 },
+        }));
       }
+      return elements;
     }
-    return paragraphs;
+
+    // Array of objects → columnar table
+    if (isTabularArray(value)) {
+      elements.push(makeColumnarTable(value));
+      elements.push(new Paragraph({ spacing: { after: 120 } }));
+      return elements;
+    }
+
+    // Mixed array
+    for (const item of value) {
+      elements.push(...renderValue(item));
+    }
+    return elements;
   }
 
   if (typeof value === "object") {
-    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-      // Field label
-      paragraphs.push(
-        new Paragraph({
-          children: [new TextRun({ text: getLabel(key), bold: true, size: 22, color: "333333" })],
-          spacing: { before: 120, after: 40 },
-          indent: { left: level * 360 },
-        })
-      );
-      paragraphs.push(...renderValueToParagraphs(val, level + 1));
+    const entries = Object.entries(value as Record<string, unknown>);
+
+    // Small flat object → key-value table
+    const isFlat = entries.every(([, v]) =>
+      typeof v === "string" || typeof v === "number" || typeof v === "boolean" ||
+      (Array.isArray(v) && v.every((i) => typeof i === "string" || typeof i === "number"))
+    );
+
+    if (isFlat && entries.length >= 2) {
+      elements.push(makeKeyValueTable(value as Record<string, unknown>));
+      elements.push(new Paragraph({ spacing: { after: 120 } }));
+      return elements;
     }
-    return paragraphs;
+
+    // Complex object → render each field
+    for (const [key, val] of entries) {
+      elements.push(new Paragraph({
+        children: [new TextRun({ text: getLabel(key), bold: true, size: 22, color: "555555" })],
+        spacing: { before: 80, after: 40 },
+      }));
+      elements.push(...renderValue(val, key));
+    }
+    return elements;
   }
 
-  return paragraphs;
+  return elements;
 }
 
 export async function generateDocx(
@@ -129,10 +336,10 @@ export async function generateDocx(
   country: string,
   sector: string
 ): Promise<Blob> {
-  const sections: Paragraph[] = [];
+  const children: DocChild[] = [];
 
   // Title page
-  sections.push(
+  children.push(
     new Paragraph({ spacing: { before: 2000 } }),
     new Paragraph({
       children: [new TextRun({ text: "PROJECT CONCEPT PAPER", bold: true, size: 36, color: "1a56db" })],
@@ -159,21 +366,19 @@ export async function generateDocx(
       alignment: AlignmentType.CENTER,
     }),
     new Paragraph({ spacing: { after: 400 } }),
-    // Divider
     new Paragraph({
       border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "1a56db" } },
       spacing: { after: 400 },
     })
   );
 
-  // Table of contents style section headers
+  // Sections
   const sectionKeys = ["basicInfo", "rationale", "description", "stakeholderAnalysis", "management"];
   for (const key of sectionKeys) {
     const sectionTitle = SECTION_TITLES[key];
     const sectionData = content[key];
 
-    // Section heading
-    sections.push(
+    children.push(
       new Paragraph({
         children: [new TextRun({ text: sectionTitle, bold: true, size: 28, color: "1a56db" })],
         heading: HeadingLevel.HEADING_1,
@@ -182,18 +387,8 @@ export async function generateDocx(
       })
     );
 
-    if (sectionData) {
-      sections.push(...renderValueToParagraphs(sectionData, 0));
-    } else {
-      sections.push(
-        new Paragraph({
-          children: [new TextRun({ text: "(No content)", italics: true, color: "999999", size: 22 })],
-          spacing: { after: 200 },
-        })
-      );
-    }
-
-    sections.push(new Paragraph({ spacing: { after: 200 } }));
+    children.push(...renderSection(key, sectionData));
+    children.push(new Paragraph({ spacing: { after: 200 } }));
   }
 
   const doc = new Document({
@@ -211,7 +406,7 @@ export async function generateDocx(
             margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
           },
         },
-        children: sections,
+        children,
       },
     ],
   });
