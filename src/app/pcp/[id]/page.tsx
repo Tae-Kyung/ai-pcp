@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { isAdmin } from "@/lib/admin";
 import { redirect, notFound } from "next/navigation";
 import { DashboardHeader } from "@/app/dashboard/header";
 import { PCPEditor } from "./editor";
@@ -11,7 +13,10 @@ export default async function PCPDetailPage({ params }: Params) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
-  const { data: project } = await supabase
+  // Admin can view any project; regular users are restricted by RLS
+  const db = isAdmin(user.email) ? createAdminClient() : supabase;
+
+  const { data: project } = await db
     .from("pcp_projects")
     .select("*")
     .eq("id", id)
@@ -19,7 +24,7 @@ export default async function PCPDetailPage({ params }: Params) {
 
   if (!project) notFound();
 
-  const { data: document } = await supabase
+  const { data: document } = await db
     .from("pcp_documents")
     .select("*")
     .eq("project_id", id)

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { isAdmin } from "@/lib/admin";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -12,7 +14,10 @@ export async function GET(_request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: project, error } = await supabase
+  // Admin can view any project; regular users are restricted by RLS
+  const db = isAdmin(user.email) ? createAdminClient() : supabase;
+
+  const { data: project, error } = await db
     .from("pcp_projects")
     .select("*")
     .eq("id", id)
@@ -22,7 +27,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const { data: document } = await supabase
+  const { data: document } = await db
     .from("pcp_documents")
     .select("*")
     .eq("project_id", id)

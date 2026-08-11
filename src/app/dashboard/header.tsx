@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useI18n } from "@/lib/i18n/context";
 import { useTheme } from "@/lib/theme/context";
 import { locales, localeNames, type Locale } from "@/lib/i18n/translations";
+import { isAdmin } from "@/lib/admin";
 
 export function DashboardHeader({ email }: { email: string }) {
   const router = useRouter();
@@ -52,6 +53,14 @@ export function DashboardHeader({ email }: { email: string }) {
             )}
           </button>
 
+          {isAdmin(email) && (
+            <Link
+              href="/admin"
+              className="rounded-md bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
+            >
+              Admin
+            </Link>
+          )}
           <span className="text-sm text-zinc-500">{email}</span>
           <button
             onClick={handleLogout}
