@@ -203,6 +203,47 @@ function makeColumnarTable(arr: Record<string, unknown>[]): Table {
   });
 }
 
+// Budget-specific table with fixed column order and total row
+function makeBudgetTable(arr: Record<string, unknown>[]): Table {
+  const hasDesc = arr.some((item) => item.description);
+  const headerCols = [
+    makeHeaderCell("Category", 30),
+    makeHeaderCell("Amount (USD)", 20),
+    makeHeaderCell("%", 10),
+  ];
+  if (hasDesc) headerCols.push(makeHeaderCell("Description", 40));
+
+  const headerRow = new TableRow({ children: headerCols });
+
+  const dataRows = arr.map((item, idx) => {
+    const shading = idx % 2 === 1 ? ALT_SHADING : undefined;
+    const amount = Number(item.amount) || 0;
+    const pct = Number(item.percentage) || 0;
+    const cols = [
+      makeCell(stringify(item.category || ""), true, shading),
+      makeCell(amount.toLocaleString(), false, shading),
+      makeCell(`${pct}%`, false, shading),
+    ];
+    if (hasDesc) cols.push(makeCell(stringify(item.description || "-"), false, shading));
+    return new TableRow({ children: cols });
+  });
+
+  // Total row
+  const totalAmount = arr.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const totalCols = [
+    makeCell("Total", true, ALT_SHADING),
+    makeCell(totalAmount.toLocaleString(), true, ALT_SHADING),
+    makeCell("100%", true, ALT_SHADING),
+  ];
+  if (hasDesc) totalCols.push(makeCell("", false, ALT_SHADING));
+  const totalRow = new TableRow({ children: totalCols });
+
+  return new Table({
+    rows: [headerRow, ...dataRows, totalRow],
+    width: { size: 100, type: WidthType.PERCENTAGE },
+  });
+}
+
 // Sections that should use key-value table format
 const KEY_VALUE_SECTIONS = new Set(["basicInfo"]);
 
@@ -289,7 +330,12 @@ function renderValue(value: unknown, fieldKey: string = ""): DocChild[] {
 
     // Array of objects → columnar table
     if (isTabularArray(value)) {
-      elements.push(makeColumnarTable(value));
+      // Budget Plan: use specialized table with fixed column order
+      if (fieldKey === "budgetPlan" && value.every((item) => "category" in item && "amount" in item)) {
+        elements.push(makeBudgetTable(value));
+      } else {
+        elements.push(makeColumnarTable(value));
+      }
       elements.push(new Paragraph({ spacing: { after: 120 } }));
       return elements;
     }
