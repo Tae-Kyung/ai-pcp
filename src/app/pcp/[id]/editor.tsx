@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { generateDocx } from "@/lib/export/docx";
 
 interface Project {
   id: string;
@@ -119,6 +120,20 @@ export function PCPEditor({ project, document }: { project: Project; document: D
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       router.refresh();
+    }
+  }
+
+  async function handleDownloadWord() {
+    try {
+      const blob = await generateDocx(content, project.title, project.country, project.sector);
+      const url = URL.createObjectURL(blob);
+      const a = window.document.createElement("a");
+      a.href = url;
+      a.download = `${project.title.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_")}_PCP.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Failed to generate Word file:", e);
     }
   }
 
@@ -350,6 +365,12 @@ export function PCPEditor({ project, document }: { project: Project; document: D
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Changes"}
+          </button>
+          <button
+            onClick={handleDownloadWord}
+            className="rounded-lg border border-green-300 bg-green-50 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-100 dark:border-green-800 dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-900"
+          >
+            Download .docx
           </button>
           <button
             onClick={handleDelete}

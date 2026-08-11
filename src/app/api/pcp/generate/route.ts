@@ -6,6 +6,42 @@ import { pcpGenerateInputSchema } from "@/lib/validations/pcp";
 
 export const maxDuration = 120;
 
+function extractJSON(raw: string): Record<string, unknown> {
+  // Strategy 1: Strip code fences and try direct parse
+  let cleaned = raw.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
+
+  // Strategy 2: Find the first { and last } and try parsing
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace === -1 || lastBrace === -1) throw new Error("No JSON object found in response");
+
+  let jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
+
+  // Try direct parse first
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    // Continue to cleanup
+  }
+
+  // Fix trailing commas
+  jsonStr = jsonStr.replace(/,\s*([}\]])/g, "$1");
+
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    // Continue to more aggressive cleanup
+  }
+
+  // Remove control characters that might break JSON
+  jsonStr = jsonStr.replace(/[\x00-\x1f\x7f]/g, (ch) => {
+    if (ch === "\n" || ch === "\r" || ch === "\t") return ch;
+    return "";
+  });
+
+  return JSON.parse(jsonStr);
+}
+
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -66,7 +102,7 @@ export async function POST(request: NextRequest) {
 
         const streamResponse = client.messages.stream({
           model: MODELS.standard,
-          max_tokens: 16384,
+          max_tokens: 64000,
           system: PCP_EXPERT_SYSTEM_PROMPT,
           messages: [{ role: "user", content: prompt }],
         });
@@ -84,34 +120,12 @@ export async function POST(request: NextRequest) {
 
         send("status", { step: "parsing", message: "Parsing AI response..." });
 
-        // Parse JSON robustly
+        // Parse JSON robustly with multiple strategies
         let content;
         try {
-          // Strip markdown code fences if present
-          let cleaned = rawOutput.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "");
-          // Find balanced JSON, skipping braces inside strings
-          const start = cleaned.indexOf("{");
-          if (start === -1) throw new Error("No JSON object found");
-          let depth = 0;
-          let end = -1;
-          let inString = false;
-          let escape = false;
-          for (let i = start; i < cleaned.length; i++) {
-            const ch = cleaned[i];
-            if (escape) { escape = false; continue; }
-            if (ch === "\\") { escape = true; continue; }
-            if (ch === '"') { inString = !inString; continue; }
-            if (inString) continue;
-            if (ch === "{") depth++;
-            if (ch === "}") { depth--; if (depth === 0) { end = i + 1; break; } }
-          }
-          if (end === -1) throw new Error("Unbalanced JSON");
-          let jsonStr = cleaned.slice(start, end);
-          // Fix trailing commas
-          jsonStr = jsonStr.replace(/,\s*([}\]])/g, "$1");
-          content = JSON.parse(jsonStr);
+          content = extractJSON(rawOutput);
         } catch (parseError) {
-          console.error("[PCP Generate] JSON parse error:", parseError, "\nRaw output (first 1000):", rawOutput.slice(0, 1000));
+          console.error("[PCP Generate] JSON parse error:", parseError, "\nRaw output length:", rawOutput.length, "\nFirst 500 chars:", rawOutput.slice(0, 500), "\nLast 500 chars:", rawOutput.slice(-500));
           await supabase.from("pcp_projects").update({ status: "draft" }).eq("id", project.id);
           send("error", { error: "Failed to parse AI response. Please try again." });
           controller.close();

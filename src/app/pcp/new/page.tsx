@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { DashboardHeader } from "@/app/dashboard/header";
 import { createClient } from "@/lib/supabase/client";
@@ -105,6 +105,7 @@ export default function NewPCPPage() {
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [streamText, setStreamText] = useState("");
+  const streamRef = useRef<HTMLDivElement>(null);
   const [userEmail, setUserEmail] = useState("");
   const [data, setData] = useState<WizardData>({
     projectTitle: "",
@@ -124,6 +125,12 @@ export default function NewPCPPage() {
       if (user) setUserEmail(user.email ?? "");
     });
   }, []);
+
+  useEffect(() => {
+    if (streamRef.current) {
+      streamRef.current.scrollTop = streamRef.current.scrollHeight;
+    }
+  }, [streamText]);
 
   function updateField<K extends keyof WizardData>(key: K, value: WizardData[K]) {
     setData((prev) => ({ ...prev, [key]: value }));
@@ -459,7 +466,7 @@ export default function NewPCPPage() {
               <p className="text-sm font-medium text-blue-600">{statusMessage}</p>
             </div>
             {streamText && (
-              <div className="max-h-80 overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs leading-relaxed text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+              <div ref={streamRef} className="max-h-96 overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs leading-relaxed text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
                 <pre className="whitespace-pre-wrap">{streamText}</pre>
               </div>
             )}

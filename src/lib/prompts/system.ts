@@ -70,7 +70,9 @@ export const PCP_GENERATION_PROMPT = `Based on the user's input data, generate a
 INPUT DATA:
 {input_data}
 
-Generate a comprehensive PCP with all 5 sections. Ensure:
+Generate a comprehensive but concise PCP with all 5 sections. Keep the total output under 5000 words.
+
+Requirements:
 1. Logical consistency between problem analysis, objectives, outcomes, and activities
 2. Realistic and measurable performance indicators
 3. SDGs alignment is substantive, not superficial
@@ -78,7 +80,9 @@ Generate a comprehensive PCP with all 5 sections. Ensure:
 5. Sustainability plan addresses institutional, financial, and technical sustainability
 6. Budget is realistic and properly categorized
 
-Respond in the following JSON structure:
+IMPORTANT: Be concise. Use 2-3 sentences per paragraph. Limit lists to 3-5 items. Do NOT add excessive sub-sections or deeply nested structures.
+
+Respond with ONLY valid JSON (no markdown, no explanation before or after). Use this structure:
 {
   "basicInfo": { ... },
   "rationale": { ... },
