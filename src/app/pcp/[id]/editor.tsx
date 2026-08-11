@@ -18,6 +18,7 @@ interface Document {
   id: string;
   version: number;
   content: Record<string, unknown>;
+  review?: ReviewResult | null;
   created_at: string;
 }
 
@@ -70,8 +71,8 @@ export function PCPEditor({ project, document }: { project: Project; document: D
   const [reviewing, setReviewing] = useState(false);
   const [reviewStatus, setReviewStatus] = useState("");
   const [reviewStreamText, setReviewStreamText] = useState("");
-  const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
-  const [showReview, setShowReview] = useState(false);
+  const [reviewResult, setReviewResult] = useState<ReviewResult | null>(document?.review ?? null);
+  const [showReview, setShowReview] = useState(!!document?.review);
   const aiInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -766,11 +767,17 @@ export function PCPEditor({ project, document }: { project: Project; document: D
             Download .pptx
           </button>
           <button
-            onClick={handleReview}
+            onClick={() => {
+              if (reviewResult && !reviewing) {
+                setShowReview(!showReview);
+              } else {
+                handleReview();
+              }
+            }}
             disabled={reviewing || !document}
             className="rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 dark:hover:bg-indigo-900"
           >
-            {reviewing ? "Reviewing..." : "AI Expert Review"}
+            {reviewing ? "Reviewing..." : reviewResult ? "View Review" : "AI Expert Review"}
           </button>
           <button
             onClick={handleDelete}
@@ -794,12 +801,22 @@ export function PCPEditor({ project, document }: { project: Project; document: D
             <h3 className="text-lg font-semibold text-indigo-700 dark:text-indigo-300">
               AI Expert Review
             </h3>
-            <button
-              onClick={() => setShowReview(false)}
-              className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-            >
-              Close
-            </button>
+            <div className="flex items-center gap-2">
+              {reviewResult && !reviewing && (
+                <button
+                  onClick={handleReview}
+                  className="rounded border border-indigo-300 px-3 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-700 dark:text-indigo-400 dark:hover:bg-indigo-950"
+                >
+                  Re-review
+                </button>
+              )}
+              <button
+                onClick={() => setShowReview(false)}
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+              >
+                Close
+              </button>
+            </div>
           </div>
 
           {reviewing && (

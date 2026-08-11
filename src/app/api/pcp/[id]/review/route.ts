@@ -92,6 +92,22 @@ export async function POST(_request: NextRequest, { params }: Params) {
           return;
         }
 
+        // Save review to latest document
+        const { data: latestDoc } = await supabase
+          .from("pcp_documents")
+          .select("id")
+          .eq("project_id", id)
+          .order("version", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (latestDoc) {
+          await supabase
+            .from("pcp_documents")
+            .update({ review: result })
+            .eq("id", latestDoc.id);
+        }
+
         send("done", { review: result });
       } catch (error) {
         console.error("[PCP Review] Error:", error);
