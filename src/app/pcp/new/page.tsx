@@ -198,7 +198,7 @@ export default function NewPCPPage() {
           }
         }
       }
-      setError("Connection ended unexpectedly. Your session may have expired. Please log in again.");
+      setError("Connection ended unexpectedly. The generation may have timed out. Please try again.");
       setLoading(false);
     } catch {
       setError("Network error. Please try again.");

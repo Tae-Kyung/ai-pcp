@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
 
         const streamResponse = client.messages.stream({
           model: MODELS.standard,
-          max_tokens: 64000,
+          max_tokens: 16000,
           system: PCP_EXPERT_SYSTEM_PROMPT,
           messages: [{ role: "user", content: prompt }],
         });
