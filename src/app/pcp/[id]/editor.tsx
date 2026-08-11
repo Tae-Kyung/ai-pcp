@@ -42,6 +42,8 @@ export function PCPEditor({ project, document }: { project: Project; document: D
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiRefining, setAiRefining] = useState(false);
   const [aiStatus, setAiStatus] = useState("");
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenStatus, setRegenStatus] = useState("");
   const aiInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -232,6 +234,64 @@ export function PCPEditor({ project, document }: { project: Project; document: D
       router.push("/dashboard");
     }
     setDeleting(false);
+  }
+
+  async function handleRegenerate() {
+    if (regenerating) return;
+    if (!confirm("This will generate a new PCP document for this project. Continue?")) return;
+    setRegenerating(true);
+    setRegenStatus("Connecting to AI...");
+
+    try {
+      const res = await fetch(`/api/pcp/${project.id}/regenerate`, { method: "POST" });
+      if (!res.ok || !res.body) {
+        setRegenStatus("Failed to start generation");
+        setRegenerating(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let eventType = "";
+
+      while (true) {
+        const { done, value: chunk } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(chunk, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith("data: ") && eventType) {
+            try {
+              const eventData = JSON.parse(line.slice(6));
+              if (eventType === "status") setRegenStatus(eventData.message);
+              if (eventType === "done") {
+                setRegenStatus("Done! Reloading...");
+                setRegenerating(false);
+                router.refresh();
+                // Force full page reload to get new document
+                window.location.reload();
+                return;
+              }
+              if (eventType === "error") {
+                setRegenStatus(`Error: ${eventData.error}`);
+                setRegenerating(false);
+                return;
+              }
+            } catch { /* skip */ }
+            eventType = "";
+          }
+        }
+      }
+      setRegenerating(false);
+    } catch {
+      setRegenStatus("Network error");
+      setRegenerating(false);
+    }
   }
 
   function renderValue(value: unknown, path: string, depth = 0): React.ReactNode {
@@ -605,7 +665,23 @@ export function PCPEditor({ project, document }: { project: Project; document: D
 
       {!document ? (
         <div className="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
-          <p className="text-zinc-500">No document generated yet.</p>
+          <p className="mb-4 text-zinc-500">
+            {project.status === "generating"
+              ? "Generation was interrupted or timed out."
+              : "No document generated yet."}
+          </p>
+          <button
+            onClick={handleRegenerate}
+            disabled={regenerating}
+            className="rounded-lg bg-blue-600 px-6 py-3 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {regenerating ? "Generating..." : "Generate PCP Document"}
+          </button>
+          {regenStatus && (
+            <p className={`mt-3 text-sm ${regenStatus.startsWith("Error") ? "text-red-600" : "text-blue-600 dark:text-blue-400"}`}>
+              {regenStatus}
+            </p>
+          )}
         </div>
       ) : (
         <div className="flex gap-6">
