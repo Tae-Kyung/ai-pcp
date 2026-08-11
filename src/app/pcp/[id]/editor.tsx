@@ -28,9 +28,14 @@ interface DimensionScore {
   details: string[];
 }
 
+interface ReviewImprovement {
+  section: string;
+  suggestion: string;
+}
+
 interface ReviewResult {
   dimensions: Record<string, DimensionScore>;
-  improvements: string[];
+  improvements: (ReviewImprovement | string)[];
   strengths: string[];
 }
 
@@ -898,21 +903,35 @@ export function PCPEditor({ project, document }: { project: Project; document: D
                 {reviewResult.improvements && reviewResult.improvements.length > 0 && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
                     <h4 className="mb-2 text-sm font-semibold text-amber-700 dark:text-amber-300">Suggested Improvements</h4>
-                    <ul className="space-y-1">
-                      {reviewResult.improvements.map((imp, i) => (
-                        <li key={i} className="text-xs text-amber-700 dark:text-amber-400">
-                          <button
-                            className="text-left hover:underline"
-                            onClick={() => {
-                              setAiPrompt(imp);
-                              setShowReview(false);
-                              aiInputRef.current?.focus();
-                            }}
-                          >
-                            → {imp}
-                          </button>
-                        </li>
-                      ))}
+                    <ul className="space-y-2">
+                      {reviewResult.improvements.map((imp, i) => {
+                        const isObj = typeof imp === "object" && imp !== null && "section" in imp;
+                        const section = isObj ? (imp as ReviewImprovement).section : "";
+                        const suggestion = isObj ? (imp as ReviewImprovement).suggestion : String(imp);
+                        const sectionLabel = section && SECTION_TITLES[section] ? SECTION_TITLES[section] : "";
+                        return (
+                          <li key={i} className="text-xs text-amber-700 dark:text-amber-400">
+                            <button
+                              className="text-left hover:underline w-full"
+                              onClick={() => {
+                                if (section && SECTION_TITLES[section]) {
+                                  setActiveSection(section);
+                                }
+                                setAiPrompt(suggestion);
+                                setShowReview(false);
+                                setTimeout(() => aiInputRef.current?.focus(), 100);
+                              }}
+                            >
+                              {sectionLabel && (
+                                <span className="inline-block rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 mr-1.5 dark:bg-amber-800 dark:text-amber-200">
+                                  {sectionLabel.split(".")[0].trim()}
+                                </span>
+                              )}
+                              {suggestion}
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                     <p className="mt-2 text-xs text-amber-600 dark:text-amber-500 italic">
                       Click a suggestion to apply it via AI Refine

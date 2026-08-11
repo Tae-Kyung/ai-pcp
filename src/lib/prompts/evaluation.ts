@@ -102,9 +102,9 @@ Dimensions: structure(15%), logic(20%), sdgsAlignment(10%), relevance(15%), resu
 
 RULES:
 - Each dimension: score (0-100), feedback (1 sentence), details (1-2 short strings)
-- MUST include "improvements" array with exactly 3 actionable suggestions
+- MUST include "improvements" array with exactly 3 objects, each with "section" (one of: basicInfo, rationale, description, stakeholderAnalysis, management) and "suggestion" (actionable instruction for AI to fix it)
 - MUST include "strengths" array with exactly 3 positive points
 - Respond ONLY with valid JSON, no markdown
 
 JSON format:
-{"dimensions":{"structure":{"score":N,"feedback":"...","details":["..."]},"logic":{"score":N,"feedback":"...","details":["..."]},"sdgsAlignment":{"score":N,"feedback":"...","details":["..."]},"relevance":{"score":N,"feedback":"...","details":["..."]},"resultsFramework":{"score":N,"feedback":"...","details":["..."]},"riskSustainability":{"score":N,"feedback":"...","details":["..."]},"writingQuality":{"score":N,"feedback":"...","details":["..."]},"budget":{"score":N,"feedback":"...","details":["..."]}},"improvements":["actionable suggestion 1","actionable suggestion 2","actionable suggestion 3"],"strengths":["strength 1","strength 2","strength 3"]}`;
+{"dimensions":{"structure":{"score":N,"feedback":"...","details":["..."]},"logic":{"score":N,"feedback":"...","details":["..."]},"sdgsAlignment":{"score":N,"feedback":"...","details":["..."]},"relevance":{"score":N,"feedback":"...","details":["..."]},"resultsFramework":{"score":N,"feedback":"...","details":["..."]},"riskSustainability":{"score":N,"feedback":"...","details":["..."]},"writingQuality":{"score":N,"feedback":"...","details":["..."]},"budget":{"score":N,"feedback":"...","details":["..."]}},"improvements":[{"section":"rationale","suggestion":"Add specific statistics to the problem analysis"},{"section":"description","suggestion":"..."},{"section":"management","suggestion":"..."}],"strengths":["strength 1","strength 2","strength 3"]}`;
