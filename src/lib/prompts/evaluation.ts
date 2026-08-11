@@ -1,4 +1,4 @@
-// 하네스 평가용 프롬프트
+// 하네스 평가용 프롬프트 (full version for harness CLI)
 
 export const EVALUATION_SYSTEM_PROMPT = `You are a senior PCP (Project Concept Paper) quality evaluator for KOICA international development cooperation projects.
 
@@ -89,3 +89,16 @@ Respond in the following JSON format:
   "improvements": ["<improvement suggestion 1>", "<improvement suggestion 2>", ...],
   "strengths": ["<strength 1>", "<strength 2>", ...]
 }`;
+
+// Fast review prompt for web UI (optimized for speed within Vercel timeout)
+export const FAST_REVIEW_SYSTEM_PROMPT = `You are a KOICA PCP quality evaluator. Score 8 dimensions (0-100). Be concise.`;
+
+export const FAST_REVIEW_PROMPT = `Rate this PCP across 8 dimensions. Be brief — 1 sentence feedback, max 2 detail points per dimension.
+
+PCP:
+{pcp_document}
+
+Dimensions: structure(15%), logic(20%), sdgsAlignment(10%), relevance(15%), resultsFramework(15%), riskSustainability(10%), writingQuality(10%), budget(5%).
+
+Respond ONLY with compact JSON:
+{"dimensions":{"structure":{"score":N,"feedback":"...","details":["...","..."]},"logic":{"score":N,"feedback":"...","details":["..."]},"sdgsAlignment":{"score":N,"feedback":"...","details":["..."]},"relevance":{"score":N,"feedback":"...","details":["..."]},"resultsFramework":{"score":N,"feedback":"...","details":["..."]},"riskSustainability":{"score":N,"feedback":"...","details":["..."]},"writingQuality":{"score":N,"feedback":"...","details":["..."]},"budget":{"score":N,"feedback":"...","details":["..."]}},"improvements":["...","...","..."],"strengths":["...","...","..."]}`;

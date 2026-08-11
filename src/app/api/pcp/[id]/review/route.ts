@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getClaudeClient, MODELS } from "@/lib/claude/client";
-import { EVALUATION_SYSTEM_PROMPT, EVALUATION_PROMPT } from "@/lib/prompts/evaluation";
+import { FAST_REVIEW_SYSTEM_PROMPT, FAST_REVIEW_PROMPT } from "@/lib/prompts/evaluation";
 
 export const maxDuration = 120;
 
@@ -62,16 +62,15 @@ export async function POST(_request: NextRequest, { params }: Params) {
         send("status", { message: "Connecting to AI expert..." });
 
         const client = getClaudeClient();
-        // Send compact JSON to reduce input tokens and speed up review
-        const prompt = EVALUATION_PROMPT.replace("{pcp_document}", JSON.stringify(doc.content));
+        const prompt = FAST_REVIEW_PROMPT.replace("{pcp_document}", JSON.stringify(doc.content));
 
         send("status", { message: "AI expert is reviewing your PCP..." });
 
         let rawOutput = "";
         const streamResponse = client.messages.stream({
-          model: MODELS.fast,
-          max_tokens: 4000,
-          system: EVALUATION_SYSTEM_PROMPT,
+          model: MODELS.standard,
+          max_tokens: 2000,
+          system: FAST_REVIEW_SYSTEM_PROMPT,
           messages: [{ role: "user", content: prompt }],
         });
 
