@@ -198,7 +198,7 @@ export default function NewPCPPage() {
           }
         }
       }
-      setError("Connection ended unexpectedly.");
+      setError("Connection ended unexpectedly. Your session may have expired. Please log in again.");
       setLoading(false);
     } catch {
       setError("Network error. Please try again.");
