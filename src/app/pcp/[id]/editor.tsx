@@ -69,6 +69,7 @@ export function PCPEditor({ project, document }: { project: Project; document: D
   const [regenStatus, setRegenStatus] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const [reviewStatus, setReviewStatus] = useState("");
+  const [reviewStreamText, setReviewStreamText] = useState("");
   const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
   const [showReview, setShowReview] = useState(false);
   const aiInputRef = useRef<HTMLTextAreaElement>(null);
@@ -325,6 +326,7 @@ export function PCPEditor({ project, document }: { project: Project; document: D
     if (reviewing) return;
     setReviewing(true);
     setReviewStatus("Connecting to AI expert...");
+    setReviewStreamText("");
     setReviewResult(null);
     setShowReview(true);
 
@@ -355,7 +357,9 @@ export function PCPEditor({ project, document }: { project: Project; document: D
             try {
               const eventData = JSON.parse(line.slice(6));
               if (eventType === "status") setReviewStatus(eventData.message);
+              if (eventType === "text") setReviewStreamText((prev) => prev + eventData.chunk);
               if (eventType === "done") {
+                setReviewStreamText("");
                 setReviewResult(eventData.review as ReviewResult);
                 setReviewStatus("");
                 setReviewing(false);
@@ -797,9 +801,16 @@ export function PCPEditor({ project, document }: { project: Project; document: D
           </div>
 
           {reviewing && (
-            <div className="p-6 text-center">
-              <div className="mb-3 inline-block h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600" />
-              <p className="text-sm text-indigo-600 dark:text-indigo-400">{reviewStatus}</p>
+            <div className="p-4">
+              <div className="mb-3 flex items-center gap-3">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" />
+                <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">{reviewStatus}</p>
+              </div>
+              {reviewStreamText && (
+                <pre className="mt-2 max-h-48 overflow-y-auto rounded-lg bg-zinc-50 p-3 text-xs text-zinc-600 whitespace-pre-wrap font-mono dark:bg-zinc-800 dark:text-zinc-400">
+                  {reviewStreamText}
+                </pre>
+              )}
             </div>
           )}
 
