@@ -82,24 +82,15 @@ Respond with the updated JSON object only.`;
           // Parse JSON robustly
           let result;
           try {
-            let cleaned = rawOutput.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "");
-            const start = cleaned.indexOf("{");
-            if (start === -1) throw new Error("No JSON found");
-            let depth = 0, end = -1;
-            let inString = false, escape = false;
-            for (let i = start; i < cleaned.length; i++) {
-              const ch = cleaned[i];
-              if (escape) { escape = false; continue; }
-              if (ch === "\\") { escape = true; continue; }
-              if (ch === '"') { inString = !inString; continue; }
-              if (inString) continue;
-              if (ch === "{") depth++;
-              if (ch === "}") { depth--; if (depth === 0) { end = i + 1; break; } }
+            let cleaned = rawOutput.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
+            const firstBrace = cleaned.indexOf("{");
+            const lastBrace = cleaned.lastIndexOf("}");
+            if (firstBrace === -1 || lastBrace === -1) throw new Error("No JSON found");
+            let jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
+            try { result = JSON.parse(jsonStr); } catch {
+              jsonStr = jsonStr.replace(/,\s*([}\]])/g, "$1");
+              result = JSON.parse(jsonStr);
             }
-            if (end === -1) throw new Error("Unbalanced JSON");
-            let jsonStr = cleaned.slice(start, end);
-            jsonStr = jsonStr.replace(/,\s*([}\]])/g, "$1");
-            result = JSON.parse(jsonStr);
           } catch {
             send("error", { error: "Failed to parse AI response. Please try again." });
             controller.close();
