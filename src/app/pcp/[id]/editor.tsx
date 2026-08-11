@@ -375,9 +375,11 @@ export function PCPEditor({ project, document }: { project: Project; document: D
           }
         }
       }
+      // Stream ended without "done" event — likely timeout
+      setReviewStatus("Review timed out. Please try again.");
       setReviewing(false);
     } catch {
-      setReviewStatus("Network error");
+      setReviewStatus("Network error. Please try again.");
       setReviewing(false);
     }
   }

@@ -62,14 +62,15 @@ export async function POST(_request: NextRequest, { params }: Params) {
         send("status", { message: "Connecting to AI expert..." });
 
         const client = getClaudeClient();
-        const prompt = EVALUATION_PROMPT.replace("{pcp_document}", JSON.stringify(doc.content, null, 2));
+        // Send compact JSON to reduce input tokens and speed up review
+        const prompt = EVALUATION_PROMPT.replace("{pcp_document}", JSON.stringify(doc.content));
 
         send("status", { message: "AI expert is reviewing your PCP..." });
 
         let rawOutput = "";
         const streamResponse = client.messages.stream({
-          model: MODELS.standard,
-          max_tokens: 8000,
+          model: MODELS.fast,
+          max_tokens: 4000,
           system: EVALUATION_SYSTEM_PROMPT,
           messages: [{ role: "user", content: prompt }],
         });
