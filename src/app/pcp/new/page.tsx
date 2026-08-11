@@ -104,6 +104,7 @@ export default function NewPCPPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [streamText, setStreamText] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [data, setData] = useState<WizardData>({
     projectTitle: "",
@@ -139,6 +140,7 @@ export default function NewPCPPage() {
     setLoading(true);
     setError("");
     setStatusMessage("Connecting...");
+    setStreamText("");
 
     try {
       const res = await fetch("/api/pcp/generate", {
@@ -175,7 +177,7 @@ export default function NewPCPPage() {
             try {
               const eventData = JSON.parse(line.slice(6));
               if (eventType === "status") setStatusMessage(eventData.message);
-              if (eventType === "progress") setStatusMessage(`Writing PCP... (${(eventData.chars / 1000).toFixed(1)}k characters generated)`);
+              if (eventType === "text") setStreamText((prev) => prev + eventData.chunk);
               if (eventType === "done") { router.push(`/pcp/${eventData.projectId}`); return; }
               if (eventType === "error") { setError(eventData.error); setLoading(false); return; }
             } catch { /* skip malformed event */ }
@@ -451,11 +453,16 @@ export default function NewPCPPage() {
         </div>
 
         {loading && (
-          <div className="mt-4 text-center">
-            <p className="text-sm font-medium text-blue-600">{statusMessage}</p>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-              <div className="h-full animate-[loading_2s_ease-in-out_infinite] rounded-full bg-blue-600" style={{ width: "60%" }} />
+          <div className="mt-6 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-blue-600" />
+              <p className="text-sm font-medium text-blue-600">{statusMessage}</p>
             </div>
+            {streamText && (
+              <div className="max-h-80 overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs leading-relaxed text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                <pre className="whitespace-pre-wrap">{streamText}</pre>
+              </div>
+            )}
           </div>
         )}
       </main>

@@ -71,15 +71,9 @@ export async function POST(request: NextRequest) {
           messages: [{ role: "user", content: prompt }],
         });
 
-        let charCount = 0;
         streamResponse.on("text", (text) => {
           rawOutput += text;
-          charCount += text.length;
-          // Send progress every ~200 chars
-          if (charCount > 200) {
-            send("progress", { chars: rawOutput.length });
-            charCount = 0;
-          }
+          send("text", { chunk: text });
         });
 
         const finalMessage = await streamResponse.finalMessage();
