@@ -158,7 +158,13 @@ export default function NewPCPPage() {
 
       if (!res.ok) {
         const result = await res.json();
-        setError(result.error ?? "Generation failed");
+        let msg = result.error ?? "Generation failed";
+        if (result.details && Array.isArray(result.details)) {
+          msg += ": " + result.details.map((d: { message?: string; path?: string[] }) =>
+            `${d.path?.join(".") ?? ""} - ${d.message ?? ""}`
+          ).join("; ");
+        }
+        setError(msg);
         setLoading(false);
         return;
       }
