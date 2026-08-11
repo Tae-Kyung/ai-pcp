@@ -70,17 +70,23 @@ export const PCP_GENERATION_PROMPT = `Based on the user's input data, generate a
 INPUT DATA:
 {input_data}
 
-Generate a comprehensive but concise PCP with all 5 sections. Keep the total output under 5000 words.
+Generate a comprehensive but concise PCP with all 5 sections.
+
+LENGTH GUIDELINES (CRITICAL - keep output compact):
+- Total JSON output must be under 3000 words (~10000 tokens)
+- Each text field: 2-3 sentences maximum (40-80 words per field)
+- problemAnalysis, needsAssessment, sustainabilityPlan: up to 5 sentences maximum
+- expectedOutcomes: exactly 3 outcomes, each with 2-3 outputs, each output with 2-3 activities
+- stakeholders: 5-6 entries, risks: 4-5 entries, budgetPlan: 5-7 items
+- Do NOT write long paragraphs or repeat information across fields
 
 Requirements:
 1. Logical consistency between problem analysis, objectives, outcomes, and activities
-2. Realistic and measurable performance indicators
+2. Realistic and measurable performance indicators with specific baseline→target numbers
 3. SDGs alignment is substantive, not superficial
 4. Risk analysis covers political, technical, financial, and social risks
 5. Sustainability plan addresses institutional, financial, and technical sustainability
 6. Budget is realistic and properly categorized
-
-IMPORTANT: Be concise. Use 2-3 sentences per paragraph. Do NOT add excessive sub-sections or deeply nested structures.
 
 Respond with ONLY valid JSON (no markdown, no explanation before or after). Use EXACTLY this structure — every field must match the types shown:
 
