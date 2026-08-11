@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { generateDocx } from "@/lib/export/docx";
+import { generatePptx } from "@/lib/export/pptx";
 
 interface Project {
   id: string;
@@ -123,17 +124,32 @@ export function PCPEditor({ project, document }: { project: Project; document: D
     }
   }
 
+  function downloadBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = window.document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const filePrefix = project.title.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_");
+
   async function handleDownloadWord() {
     try {
       const blob = await generateDocx(content, project.title, project.country, project.sector);
-      const url = URL.createObjectURL(blob);
-      const a = window.document.createElement("a");
-      a.href = url;
-      a.download = `${project.title.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_")}_PCP.docx`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `${filePrefix}_PCP.docx`);
     } catch (e) {
       console.error("Failed to generate Word file:", e);
+    }
+  }
+
+  async function handleDownloadPptx() {
+    try {
+      const blob = await generatePptx(content, project.title, project.country, project.sector);
+      downloadBlob(blob, `${filePrefix}_PCP.pptx`);
+    } catch (e) {
+      console.error("Failed to generate PowerPoint file:", e);
     }
   }
 
@@ -482,6 +498,12 @@ export function PCPEditor({ project, document }: { project: Project; document: D
             className="rounded-lg border border-green-300 bg-green-50 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-100 dark:border-green-800 dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-900"
           >
             Download .docx
+          </button>
+          <button
+            onClick={handleDownloadPptx}
+            className="rounded-lg border border-orange-300 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-300 dark:hover:bg-orange-900"
+          >
+            Download .pptx
           </button>
           <button
             onClick={handleDelete}
