@@ -100,5 +100,11 @@ PCP:
 
 Dimensions: structure(15%), logic(20%), sdgsAlignment(10%), relevance(15%), resultsFramework(15%), riskSustainability(10%), writingQuality(10%), budget(5%).
 
-Respond ONLY with compact JSON:
-{"dimensions":{"structure":{"score":N,"feedback":"...","details":["...","..."]},"logic":{"score":N,"feedback":"...","details":["..."]},"sdgsAlignment":{"score":N,"feedback":"...","details":["..."]},"relevance":{"score":N,"feedback":"...","details":["..."]},"resultsFramework":{"score":N,"feedback":"...","details":["..."]},"riskSustainability":{"score":N,"feedback":"...","details":["..."]},"writingQuality":{"score":N,"feedback":"...","details":["..."]},"budget":{"score":N,"feedback":"...","details":["..."]}},"improvements":["...","...","..."],"strengths":["...","...","..."]}`;
+RULES:
+- Each dimension: score (0-100), feedback (1 sentence), details (1-2 short strings)
+- MUST include "improvements" array with exactly 3 actionable suggestions
+- MUST include "strengths" array with exactly 3 positive points
+- Respond ONLY with valid JSON, no markdown
+
+JSON format:
+{"dimensions":{"structure":{"score":N,"feedback":"...","details":["..."]},"logic":{"score":N,"feedback":"...","details":["..."]},"sdgsAlignment":{"score":N,"feedback":"...","details":["..."]},"relevance":{"score":N,"feedback":"...","details":["..."]},"resultsFramework":{"score":N,"feedback":"...","details":["..."]},"riskSustainability":{"score":N,"feedback":"...","details":["..."]},"writingQuality":{"score":N,"feedback":"...","details":["..."]},"budget":{"score":N,"feedback":"...","details":["..."]}},"improvements":["actionable suggestion 1","actionable suggestion 2","actionable suggestion 3"],"strengths":["strength 1","strength 2","strength 3"]}`;
