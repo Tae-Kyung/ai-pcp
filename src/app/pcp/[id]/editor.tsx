@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { generateDocx } from "@/lib/export/docx";
 import { generatePptx } from "@/lib/export/pptx";
+import type { Deck } from "@/lib/types/deck";
 
 interface Project {
   id: string;
@@ -66,6 +67,8 @@ export function PCPEditor({ project, document }: { project: Project; document: D
   const [activeSection, setActiveSection] = useState("basicInfo");
   const [deleting, setDeleting] = useState(false);
   const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [buildingDeck, setBuildingDeck] = useState(false);
+  const [deckStatus, setDeckStatus] = useState("");
   const [editValue, setEditValue] = useState("");
   const editRef = useRef<HTMLTextAreaElement>(null);
   const [aiPrompt, setAiPrompt] = useState("");
@@ -180,14 +183,62 @@ export function PCPEditor({ project, document }: { project: Project; document: D
     }
   }
 
-  async function handleDownloadPptx() {
+  /** Claude authors the slide plan server-side; the renderer only draws it. */
+  async function fetchDeck(refresh: boolean): Promise<Deck> {
+    const res = await fetch(`/api/pcp/${project.id}/deck${refresh ? "?refresh=1" : ""}`, {
+      method: "POST",
+    });
+    if (!res.ok || !res.body) {
+      const message = await res.json().catch(() => ({}));
+      throw new Error(message.error ?? "Failed to start deck generation");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let eventType = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("event: ")) {
+          eventType = line.slice(7).trim();
+        } else if (line.startsWith("data: ") && eventType) {
+          const payload = JSON.parse(line.slice(6));
+          if (eventType === "status") setDeckStatus(payload.message);
+          if (eventType === "done") return payload.deck as Deck;
+          if (eventType === "error") throw new Error(payload.error);
+          eventType = "";
+        }
+      }
+    }
+    throw new Error("Deck generation timed out. Please try again.");
+  }
+
+  async function handleDownloadPptx(refresh = false) {
+    if (buildingDeck) return;
+    setBuildingDeck(true);
+    setDeckStatus("Connecting...");
     try {
-      console.log("handleDownloadPptx called, content keys:", Object.keys(content));
-      const blob = await generatePptx(content, project.title, project.country, project.sector);
+      const deck = await fetchDeck(refresh);
+      setDeckStatus("Rendering slides...");
+      const blob = await generatePptx(deck, {
+        title: project.title,
+        country: project.country,
+        sector: project.sector,
+      });
       downloadBlob(blob, `${filePrefix}_PCP.pptx`);
     } catch (e) {
       console.error("Failed to generate PowerPoint file:", e);
       alert("Failed to generate PowerPoint file: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBuildingDeck(false);
+      setDeckStatus("");
     }
   }
 
@@ -766,11 +817,20 @@ export function PCPEditor({ project, document }: { project: Project; document: D
             Download .docx
           </button>
           <button
-            onClick={handleDownloadPptx}
-            className="rounded-lg border border-orange-300 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-300 dark:hover:bg-orange-900"
+            onClick={() => handleDownloadPptx(false)}
+            // Shift-click re-authors the deck instead of reusing the cached plan.
+            onMouseDown={(e) => { if (e.shiftKey) { e.preventDefault(); handleDownloadPptx(true); } }}
+            disabled={buildingDeck}
+            title="Download the slide deck (shift-click to re-author it)"
+            className="rounded-lg border border-orange-300 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100 disabled:opacity-50 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-300 dark:hover:bg-orange-900"
           >
-            Download .pptx
+            {buildingDeck ? "Building deck..." : "Download .pptx"}
           </button>
+          {buildingDeck && deckStatus && (
+            <span className="self-center text-xs text-neutral-500 dark:text-neutral-400">
+              {deckStatus}
+            </span>
+          )}
           <button
             onClick={() => {
               if (reviewResult && !reviewing) {
