@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getClaudeClient, MODELS } from "@/lib/claude/client";
 import { PCP_EXPERT_SYSTEM_PROMPT } from "@/lib/prompts/system";
+import { extractJSON } from "@/lib/claude/json";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -82,15 +83,7 @@ Respond with the updated JSON object only.`;
           // Parse JSON robustly
           let result;
           try {
-            let cleaned = rawOutput.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
-            const firstBrace = cleaned.indexOf("{");
-            const lastBrace = cleaned.lastIndexOf("}");
-            if (firstBrace === -1 || lastBrace === -1) throw new Error("No JSON found");
-            let jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
-            try { result = JSON.parse(jsonStr); } catch {
-              jsonStr = jsonStr.replace(/,\s*([}\]])/g, "$1");
-              result = JSON.parse(jsonStr);
-            }
+            result = extractJSON(rawOutput);
           } catch {
             send("error", { error: "Failed to parse AI response. Please try again." });
             controller.close();

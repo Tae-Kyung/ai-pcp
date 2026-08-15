@@ -4,6 +4,7 @@ import { isAdmin } from "@/lib/admin";
 import { redirect, notFound } from "next/navigation";
 import { DashboardHeader } from "@/app/dashboard/header";
 import { PCPEditor } from "./editor";
+import { reconcileStaleGenerating } from "@/lib/pcp/status";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -32,11 +33,14 @@ export default async function PCPDetailPage({ params }: Params) {
     .limit(1)
     .single();
 
+  // A run killed by the function timeout leaves the row stuck at "generating".
+  const statuses = await reconcileStaleGenerating(db, [project]);
+
   return (
     <div className="flex flex-1 flex-col">
       <DashboardHeader email={user.email ?? ""} />
       <PCPEditor
-        project={project}
+        project={{ ...project, status: statuses.get(project.id) ?? project.status }}
         document={document}
       />
     </div>

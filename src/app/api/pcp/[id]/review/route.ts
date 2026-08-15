@@ -2,25 +2,10 @@ import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getClaudeClient, MODELS } from "@/lib/claude/client";
 import { FAST_REVIEW_SYSTEM_PROMPT, FAST_REVIEW_PROMPT } from "@/lib/prompts/evaluation";
+import { extractJSON } from "@/lib/claude/json";
 
 export const maxDuration = 120;
 
-function extractJSON(raw: string): Record<string, unknown> {
-  let cleaned = raw.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-  if (firstBrace === -1 || lastBrace === -1) throw new Error("No JSON object found");
-
-  let jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
-  try { return JSON.parse(jsonStr); } catch { /* continue */ }
-  jsonStr = jsonStr.replace(/,\s*([}\]])/g, "$1");
-  try { return JSON.parse(jsonStr); } catch { /* continue */ }
-  jsonStr = jsonStr.replace(/[\x00-\x1f\x7f]/g, (ch) => {
-    if (ch === "\n" || ch === "\r" || ch === "\t") return ch;
-    return "";
-  });
-  return JSON.parse(jsonStr);
-}
 
 type Params = { params: Promise<{ id: string }> };
 

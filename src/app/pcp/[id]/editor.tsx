@@ -13,6 +13,8 @@ interface Project {
   country: string;
   sector: string;
   status: string;
+  /** The wizard answers that produced this project; absent on older rows. */
+  input?: Record<string, unknown> | null;
 }
 
 interface Document {
@@ -372,6 +374,9 @@ export function PCPEditor({ project, document }: { project: Project; document: D
           }
         }
       }
+      // The stream ended without a "done" event, so the function was killed
+      // mid-generation rather than finishing.
+      setRegenStatus("Error: Connection ended unexpectedly. The generation may have timed out. Please try again.");
       setRegenerating(false);
     } catch {
       setRegenStatus("Network error");
@@ -803,6 +808,9 @@ export function PCPEditor({ project, document }: { project: Project; document: D
         </div>
         <div className="flex items-center gap-2">
           {saved && <span className="text-sm text-green-600">Saved!</span>}
+          {/* Saving, exporting and reviewing all need a document to act on. */}
+          {document && (
+            <>
           <button
             onClick={handleSave}
             disabled={saving}
@@ -839,11 +847,13 @@ export function PCPEditor({ project, document }: { project: Project; document: D
                 handleReview();
               }
             }}
-            disabled={reviewing || !document}
+            disabled={reviewing}
             className="rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 dark:hover:bg-indigo-900"
           >
             {reviewing ? "Reviewing..." : reviewResult ? "View Review" : "AI Expert Review"}
           </button>
+            </>
+          )}
           <button
             onClick={handleDelete}
             disabled={deleting}
@@ -855,7 +865,7 @@ export function PCPEditor({ project, document }: { project: Project; document: D
       </div>
 
       {/* Edit hint */}
-      <div className="mb-4 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+      <div className={`mb-4 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300 ${document ? "" : "hidden"}`}>
         Click any text to edit it. Press Ctrl+Enter to confirm, Esc to cancel.
       </div>
 
@@ -1016,9 +1026,16 @@ export function PCPEditor({ project, document }: { project: Project; document: D
         <div className="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
           <p className="mb-4 text-zinc-500">
             {project.status === "generating"
-              ? "Generation was interrupted or timed out."
+              ? "Generation is still running. Reload in a minute."
               : "No document generated yet."}
           </p>
+          {!project.input && (
+            <p className="mx-auto mb-4 max-w-xl text-sm text-amber-700 dark:text-amber-400">
+              This project predates saving the wizard answers, so the problem statement,
+              budget, duration and SDGs you entered are no longer on file. Generating now
+              will use defaults. For a faithful document, start a new project instead.
+            </p>
+          )}
           <button
             onClick={handleRegenerate}
             disabled={regenerating}

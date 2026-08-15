@@ -2,28 +2,66 @@ import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getClaudeClient, MODELS } from "@/lib/claude/client";
 import { PCP_EXPERT_SYSTEM_PROMPT, PCP_GENERATION_PROMPT } from "@/lib/prompts/system";
+import { extractJSON } from "@/lib/claude/json";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
-function extractJSON(raw: string): Record<string, unknown> {
-  let cleaned = raw.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-  if (firstBrace === -1 || lastBrace === -1) throw new Error("No JSON object found in response");
 
-  let jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
+type ProjectRow = {
+  title: string;
+  country: string;
+  sector: string;
+  input?: Record<string, unknown> | null;
+};
 
-  try { return JSON.parse(jsonStr); } catch { /* continue */ }
+function asString(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) return value;
+  if (typeof value === "number") return String(value);
+  return undefined;
+}
 
-  jsonStr = jsonStr.replace(/,\s*([}\]])/g, "$1");
-  try { return JSON.parse(jsonStr); } catch { /* continue */ }
+/**
+ * Recover the generation input for a project. Field names in stored documents
+ * vary, so read defensively and never let a missing value become a wrong one.
+ */
+function buildRegenerationInput(project: ProjectRow, previousContent: unknown) {
+  const stored = project.input ?? {};
+  const content = (previousContent ?? {}) as Record<string, unknown>;
+  const basicInfo = (content.basicInfo ?? {}) as Record<string, unknown>;
+  const rationale = (content.rationale ?? {}) as Record<string, unknown>;
+  const beneficiaries = basicInfo.targetBeneficiaries;
 
-  jsonStr = jsonStr.replace(/[\x00-\x1f\x7f]/g, (ch) => {
-    if (ch === "\n" || ch === "\r" || ch === "\t") return ch;
-    return "";
-  });
+  const sdgs = Array.isArray(stored.sdgs)
+    ? (stored.sdgs as number[])
+    : Array.isArray(basicInfo.sdgsAlignment)
+      ? (basicInfo.sdgsAlignment as number[])
+      : [];
 
-  return JSON.parse(jsonStr);
+  return {
+    projectTitle: asString(stored.projectTitle) ?? project.title,
+    requestingCountry: asString(stored.requestingCountry) ?? project.country,
+    sector: asString(stored.sector) ?? project.sector,
+    problemStatement:
+      asString(stored.problemStatement) ??
+      asString(rationale.problemAnalysis) ??
+      `Generate a comprehensive PCP for a ${project.sector} project in ${project.country}.`,
+    targetBeneficiaries:
+      asString(stored.targetBeneficiaries) ??
+      (beneficiaries && typeof beneficiaries === "object"
+        ? Object.values(beneficiaries).filter(Boolean).join("; ")
+        : asString(beneficiaries)) ??
+      "",
+    projectDuration:
+      asString(stored.projectDuration) ?? asString(basicInfo.projectDuration) ?? "3 years",
+    estimatedBudget:
+      typeof stored.estimatedBudget === "number"
+        ? stored.estimatedBudget
+        : typeof basicInfo.totalProjectCost === "number"
+          ? basicInfo.totalProjectCost
+          : 10000000,
+    sdgs: sdgs.length > 0 ? sdgs : [1],
+    additionalContext: asString(stored.additionalContext),
+  };
 }
 
 type Params = { params: Promise<{ id: string }> };
@@ -50,17 +88,17 @@ export async function POST(request: NextRequest, { params }: Params) {
   // Update status to generating
   await supabase.from("pcp_projects").update({ status: "generating" }).eq("id", id);
 
-  // Build input from project data
-  const input = {
-    projectTitle: project.title,
-    requestingCountry: project.country,
-    sector: project.sector,
-    problemStatement: "Generate a comprehensive PCP for this project",
-    targetBeneficiaries: "",
-    projectDuration: "3 years",
-    estimatedBudget: 10000000,
-    sdgs: [1],
-  };
+  // Prefer the input the user actually submitted. Projects created before that
+  // was persisted fall back to their last document, then to bare defaults.
+  const { data: previous } = await supabase
+    .from("pcp_documents")
+    .select("content")
+    .eq("project_id", id)
+    .order("version", { ascending: false })
+    .limit(1)
+    .single();
+
+  const input = buildRegenerationInput(project, previous?.content);
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({

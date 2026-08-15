@@ -3,44 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getClaudeClient, MODELS } from "@/lib/claude/client";
 import { PCP_EXPERT_SYSTEM_PROMPT, PCP_GENERATION_PROMPT } from "@/lib/prompts/system";
 import { pcpGenerateInputSchema } from "@/lib/validations/pcp";
+import { extractJSON } from "@/lib/claude/json";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
-function extractJSON(raw: string): Record<string, unknown> {
-  // Strategy 1: Strip code fences and try direct parse
-  let cleaned = raw.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
-
-  // Strategy 2: Find the first { and last } and try parsing
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-  if (firstBrace === -1 || lastBrace === -1) throw new Error("No JSON object found in response");
-
-  let jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
-
-  // Try direct parse first
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    // Continue to cleanup
-  }
-
-  // Fix trailing commas
-  jsonStr = jsonStr.replace(/,\s*([}\]])/g, "$1");
-
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    // Continue to more aggressive cleanup
-  }
-
-  // Remove control characters that might break JSON
-  jsonStr = jsonStr.replace(/[\x00-\x1f\x7f]/g, (ch) => {
-    if (ch === "\n" || ch === "\r" || ch === "\t") return ch;
-    return "";
-  });
-
-  return JSON.parse(jsonStr);
-}
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -61,17 +27,32 @@ export async function POST(request: NextRequest) {
   await supabase.from("pcp_profiles").upsert({ id: user.id }, { onConflict: "id" });
 
   // Create project
-  const { data: project, error: projectError } = await supabase
+  const projectRow = {
+    user_id: user.id,
+    title: input.projectTitle,
+    country: input.requestingCountry,
+    sector: input.sector,
+    status: "generating",
+  };
+
+  // `input` is kept so regeneration can reuse the problem statement, budget,
+  // duration and SDGs the user entered. Its column ships in
+  // supabase/add-project-input-column.sql; until that migration is applied,
+  // fall back rather than blocking project creation.
+  let { data: project, error: projectError } = await supabase
     .from("pcp_projects")
-    .insert({
-      user_id: user.id,
-      title: input.projectTitle,
-      country: input.requestingCountry,
-      sector: input.sector,
-      status: "generating",
-    })
+    .insert({ ...projectRow, input })
     .select()
     .single();
+
+  if (projectError?.code === "PGRST204") {
+    console.warn("[PCP Generate] pcp_projects.input missing; run add-project-input-column.sql");
+    ({ data: project, error: projectError } = await supabase
+      .from("pcp_projects")
+      .insert(projectRow)
+      .select()
+      .single());
+  }
 
   if (projectError || !project) {
     console.error("Failed to create project:", projectError);
